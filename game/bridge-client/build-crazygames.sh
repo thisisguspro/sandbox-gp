@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Our live server (Render). Override with: SERVER_URL=https://... ./build-crazygames.sh
-SERVER_URL="${SERVER_URL:-https://bridge-game-ylbm.onrender.com}"
+SERVER_URL="${SERVER_URL:-https://iron-frontier.onrender.com}"
 echo "» backend/game server: $SERVER_URL"
 
 echo "» building with VITE_CRAZYGAMES=1 …"

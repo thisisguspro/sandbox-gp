@@ -11,7 +11,7 @@
 # repo. (Or keep the existing service and just mirror the settings below.)
 services:
   - type: web
-    name: bridge-game-ylbm
+    name: iron-frontier
     runtime: node
     plan: free
     region: oregon
