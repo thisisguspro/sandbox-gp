@@ -1,0 +1,49 @@
+# SANDBOX GP — Render blueprint.
+#
+# One web service runs everything on a single port: the Express backend, the
+# Socket.IO game server, and the built client (bridge-deploy/server.js mounts
+# all three). Render sets $PORT; the deploy server reads it.
+#
+# The service was previously configured by hand in the dashboard; pinning it
+# here means the config lives in the repo and survives a rebuild/recreate.
+#
+# To apply: Render dashboard → Blueprints → New Blueprint Instance → pick this
+# repo. (Or keep the existing service and just mirror the settings below.)
+services:
+  - type: web
+    name: bridge-game-ylbm
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+
+    # The deploy package builds the backend, game server, and client bundle.
+    buildCommand: cd game/bridge-deploy && npm install && npm run build
+    startCommand: cd game/bridge-deploy && npm start
+
+    healthCheckPath: /health
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Signs player session tokens. Render generates a strong value once and
+      # keeps it stable across deploys — do NOT hardcode a secret here.
+      - key: JWT_SECRET
+        generateValue: true
+
+      # Shared key the game server uses to post match results to the backend's
+      # /internal routes. Generated, not hardcoded.
+      - key: SERVICE_KEY
+        generateValue: true
+
+      # CrazyGames account integration. Tokens are verified against the key CG
+      # publishes; CG_GAME_ID pins them to this game once the portal assigns an
+      # ID (find it in the developer portal URL). Safe to leave unset until then.
+      - key: CG_GAME_ID
+        sync: false
+
+      # Google sign-in for the DIRECT-WEB build only (it is hidden on CrazyGames,
+      # where external logins are forbidden). Set in the dashboard if used.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
