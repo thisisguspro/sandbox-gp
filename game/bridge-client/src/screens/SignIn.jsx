@@ -1,3 +1,4 @@
+import { CG_BUILD } from "../api/crazygames.js";
 import { useState, useEffect, useRef } from "react";
 import * as api from "../api/backend.js";
 import { useI18n } from "../api/i18n.jsx";
@@ -22,6 +23,7 @@ function loadGis() {
 // Sign-in. Google sign-in is the ONLY way in — the configured superadmin email
 // unlocks admin powers when signing in with Google.
 export default function SignIn({ onSignedIn }) {
+  const onCrazyGames = CG_BUILD;
   const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -33,6 +35,18 @@ export default function SignIn({ onSignedIn }) {
 
   // Dev-only bypass (server reports devLoginEnabled when NOT in production). Any
   // call sign logs in for local playtesting; never available on a live deploy.
+  const [guestName, setGuestName] = useState("");
+  async function doGuest(e) {
+    e?.preventDefault?.();
+    setBusy(true); setErr(null);
+    try {
+      const data = await api.guestLogin(guestName.trim() || undefined);
+      if (data.token) api.setToken(data.token);
+      onSignedIn(data.user);
+    } catch (e) { setErr(e.message || "Guest sign-in failed."); }
+    finally { setBusy(false); }
+  }
+
   async function doDevLogin(e) {
     e?.preventDefault?.();
     setBusy(true); setErr(null);
@@ -81,11 +95,11 @@ export default function SignIn({ onSignedIn }) {
       <SpeedLines hot />
       <Particles density={36} />
       <div style={{ position: "relative", zIndex: 2, textAlign: "center", margin: "auto", padding: "40px 20px", width: "100%", maxWidth: 500 }}>
-        <div className="kanji" style={{ fontSize: 22, color: "var(--hot)", letterSpacing: "0.4em", marginBottom: 4 }}>IRON FRONTIER</div>
+        <div className="kanji" style={{ fontSize: 22, color: "var(--hot)", letterSpacing: "0.4em", marginBottom: 4 }}>SANDBOX GP</div>
         <h1 className="display" style={{ fontSize: "clamp(44px,9vw,96px)", margin: 0, lineHeight: 0.86,
           background: "linear-gradient(180deg,#fff 0%,#ffd0d8 60%,var(--hot) 100%)",
           WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", textShadow: "0 0 40px rgba(255,45,77,0.3)" }}>
-          IRON FRONTIER
+          SANDBOX GP
         </h1>
         <div className="impactf dim" style={{ letterSpacing: "0.35em", marginTop: 2, marginBottom: 36, fontSize: 13, textTransform: "uppercase" }}>
           {t("signin.tagline")}
@@ -93,14 +107,29 @@ export default function SignIn({ onSignedIn }) {
 
         <div className="panel panel-hot" style={{ padding: 28, width: 360, margin: "0 auto", textAlign: "center", background: "var(--ink-2)" }}>
           <div className="tag" style={{ marginBottom: 22 }}><span>{t("signin.saddleUp")}</span></div>
-          <div ref={gbtn} style={{ display: "flex", justifyContent: "center", minHeight: googleOn ? 40 : 0 }} />
+          {!onCrazyGames && <div ref={gbtn} style={{ display: "flex", justifyContent: "center", minHeight: googleOn ? 40 : 0 }} />}
           {ready && !googleOn && !devOn && (
             <div style={{ color: "var(--hot)", fontSize: 13, fontWeight: 600, lineHeight: 1.5 }}>
               {t("signin.googleNotConfigured")}
             </div>
           )}
+          {ready && (
+            <form onSubmit={doGuest} style={{ marginTop: googleOn ? 14 : 0 }}>
+              {googleOn && (
+                <div className="faint" style={{ fontSize: 11, letterSpacing: "0.25em", margin: "4px 0 12px", textTransform: "uppercase" }}>
+                  or jump straight in
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={guestName} onChange={(e) => setGuestName(e.target.value)} maxLength={20}
+                  placeholder="Pick a racer name (optional)"
+                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "rgba(0,0,0,0.25)", color: "var(--paper)" }} />
+                <button className="btn btn-hot" type="submit" disabled={busy}>🏁 PLAY AS GUEST</button>
+              </div>
+            </form>
+          )}
           {devOn && (
-            <form onSubmit={doDevLogin} style={{ marginTop: googleOn ? 16 : 0 }}>
+            <form onSubmit={doDevLogin} style={{ marginTop: 16 }}>
               {googleOn && (
                 <div className="faint" style={{ fontSize: 11, letterSpacing: "0.25em", margin: "4px 0 14px", textTransform: "uppercase" }}>
                   {t("signin.orDev")}

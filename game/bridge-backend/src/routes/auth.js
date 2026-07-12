@@ -2,8 +2,10 @@ import { Router } from "express";
 import { OAuth2Client } from "google-auth-library";
 import { db } from "../store/index.js";
 import { issueToken, requireAuth } from "../middleware/auth.js";
+import fs from "fs";
 import { config } from "../config/index.js";
 import { validateName, safeName } from "../config/nameFilter.js";
+import jwtLib from "jsonwebtoken";
 
 export const authRouter = Router();
 
@@ -26,6 +28,91 @@ authRouter.get("/config", (_req, res) => {
 // this host, nobody can get in to playtest. This lets any call sign log in and
 // returns the same { token, user } shape as the Google path. HARD-GATED to
 // non-production via config.devLoginEnabled — returns 404 on a live deploy.
+// ---- CrazyGames account integration ----
+// Portal requirement: logged-in CrazyGames users are registered and signed in
+// AUTOMATICALLY (new and returning), guests always get to play, and external
+// logins are forbidden on CG. The client sends the SDK's 1-hour user JWT here;
+// we verify it (RS256) against CrazyGames' published key and map userId → an
+// account keyed "cg:<userId>", so the same player lands in the same account on
+// every device. A signed-in guest sending their bearer alongside gets that
+// guest account LINKED to the CrazyGames identity — pre-login progress rides
+// along instead of being orphaned.
+let _cgKeyCache = { pem: null, at: 0 };
+async function crazyGamesPublicKey(force = false) {
+  if (config.cgPublicKeyFile) return fs.readFileSync(config.cgPublicKeyFile, "utf8"); // tests inject a keypair
+  const FRESH = 10 * 60 * 1000;                                   // their key can rotate
+  if (!force && _cgKeyCache.pem && Date.now() - _cgKeyCache.at < FRESH) return _cgKeyCache.pem;
+  const res = await fetch(config.cgPublicKeyUrl);
+  if (!res.ok) throw new Error(`CG key fetch failed: ${res.status}`);
+  const pem = (await res.json()).publicKey;
+  if (!pem) throw new Error("CG key response missing publicKey");
+  _cgKeyCache = { pem, at: Date.now() };
+  return pem;
+}
+
+authRouter.post("/crazygames", async (req, res) => {
+  const cgToken = String(req.body?.token || "");
+  if (!cgToken) return res.status(400).json({ error: "token required." });
+  let payload;
+  try {
+    payload = jwtLib.verify(cgToken, await crazyGamesPublicKey(), { algorithms: ["RS256"] });
+  } catch {
+    // key may have rotated under our cache — refetch once and retry
+    try { payload = jwtLib.verify(cgToken, await crazyGamesPublicKey(true), { algorithms: ["RS256"] }); }
+    catch { return res.status(401).json({ error: "CrazyGames token invalid or expired." }); }
+  }
+  if (!payload?.userId) return res.status(401).json({ error: "CrazyGames token missing userId." });
+  if (config.cgGameId && String(payload.gameId) !== String(config.cgGameId)) {
+    return res.status(401).json({ error: "Token is for a different game." });
+  }
+
+  const googleId = `cg:${payload.userId}`;
+  let user = await db.findUserByGoogleId(googleId);
+
+  if (!user) {
+    // guest → CG link (only when no CG-linked account exists yet)
+    const header = req.headers.authorization || "";
+    const bearer = header.startsWith("Bearer ") ? header.slice(7) : null;
+    if (bearer) {
+      try {
+        const me = jwtLib.verify(bearer, config.jwtSecret);
+        const existing = await db.getUser(me.sub);
+        if (existing?.googleId?.startsWith("guest:")) user = await db.relinkGoogleId(existing.id, googleId);
+      } catch {}
+    }
+  }
+
+  if (!user) {
+    const check = validateName(String(payload.username || ""));
+    const name = check.ok ? check.name : safeName(`Racer ${Math.floor(Math.random() * 9000 + 1000)}`);
+    user = await db.createUser({ googleId, name, avatar: (name[0] || "R").toUpperCase() });
+    await db.acceptTos(user.id);
+    await db.setInitialName(user.id, name);
+    user = await db.getUser(user.id);
+  }
+
+  const ban = await db.isBanned(user.id);
+  if (ban.banned) return res.status(403).json({ error: "This account is banned.", banUntil: ban.until || null, reason: ban.reason || null });
+  res.json({ token: issueToken(user), user: publicUser(user) });
+});
+
+// Guest sign-in (production-safe): one click, a real account, no credentials.
+// CrazyGames players often can't complete Google popups inside the game iframe,
+// and the platform grades conversion-to-gameplay — this keeps the door open.
+// The token can be persisted via the CrazyGames data module so the guest
+// survives across sessions and devices on the portal.
+authRouter.post("/guest", async (req, res) => {
+  const check = validateName(req.body?.name || "");
+  const name = check.ok ? check.name : safeName(`Racer ${Math.floor(Math.random() * 9000 + 1000)}`);
+  const googleId = `guest:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  let user = await db.createUser({ googleId, name, avatar: (name[0] || "R").toUpperCase(), isGuest: true });
+  await db.acceptTos(user.id);
+  await db.setInitialName(user.id, name);
+  user = await db.getUser(user.id);
+  const token = issueToken(user);
+  res.json({ token, user: publicUser(user) });
+});
+
 authRouter.post("/dev-login", async (req, res) => {
   if (!config.devLoginEnabled) return res.status(404).json({ error: "Not found." });
   const skipOnboard = (req.body || {}).skipOnboard === true; // dev-only: leave the account un-onboarded to preview the first-time flow

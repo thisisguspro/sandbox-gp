@@ -7,6 +7,14 @@
 //  - import.meta.env.DEV is true under `vite dev`, false in a production build.
 const isDev = import.meta.env.DEV;
 const sameOrigin = typeof window !== "undefined" ? window.location.origin : "";
+
+// CRITICAL for portal builds (CrazyGames, Poki, itch): the game's FILES are
+// served from the PORTAL's CDN (e.g. sandbox-gp.game-files.crazygames.com), so
+// "same origin" is the portal — not us. Every API/socket call must therefore
+// point at our own server by ABSOLUTE URL, baked in at build time via
+// VITE_BACKEND_URL / VITE_GAME_URL. Without this the client 403s on its own
+// endpoints (/auth/*, /i18n/*) because it's asking the CDN for them.
+// The default below keeps same-origin behaviour for the direct-web deploy.
 export const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || (isDev ? "http://localhost:4000" : sameOrigin);
 export const GAME_URL = import.meta.env.VITE_GAME_URL || (isDev ? "http://localhost:5000" : sameOrigin);
 

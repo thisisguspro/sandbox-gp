@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { cgInit, cgLoadingStop, cgInviteCode, cgDataGet, cgDataSet, CG_BUILD, cgGetUserToken, cgOnAuthChange } from "./api/crazygames.js";
 import * as api from "./api/backend.js";
 import { useI18n } from "./api/i18n.jsx";
 import { initAudio, setSfxVolumes } from "./api/audio.js";
@@ -34,6 +35,20 @@ export default function App() {
   const [pendingJoin, setPendingJoin] = useState(null); // roomId Play should auto-join into
   const [newsUnread, setNewsUnread] = useState(0);      // count of live news tiles this account hasn't opened
 
+  // CrazyGames: the menu being interactive = loading done. And if the player
+  // arrived via a platform invite link, the friend's join code rides in on the
+  // SDK's inviteParams — feed it straight into the normal auto-join path.
+  useEffect(() => {
+    if (!user) return;
+    cgInit().then(() => {
+      cgLoadingStop();
+      const tok = api.getToken();
+      if (tok) cgDataSet("gp_token", tok);   // cloud-save the session for next visit
+      const code = cgInviteCode();
+      if (code) { setPendingJoin(String(code).toUpperCase()); setScreen("play"); }
+    });
+  }, [user]);
+
   const loadAll = useCallback(async () => {
     const [p, c, st, nw] = await Promise.all([api.getProfile(), api.getCatalogue(), api.getSettings().catch(() => null), api.getNews().catch(() => null)]);
     setProfile(p); setCatalogue(c);
@@ -44,9 +59,36 @@ export default function App() {
     }
   }, []);
 
-  // On boot, if we have a token, try to resume the session.
+  // On boot, resume or establish a session. On CrazyGames the portal REQUIRES
+  // zero-friction auth: a logged-in CG user is verified via their SDK token and
+  // auto-signed into their linked account (same account on every device); a CG
+  // guest gets a silent guest account, restored across sessions through the
+  // platform's cloud save. The sign-in screen never renders on CrazyGames.
   useEffect(() => {
     (async () => {
+      try {
+        await cgInit();
+        if (CG_BUILD) {
+          if (!api.getToken()) {
+            const saved = cgDataGet("gp_token");   // load any returning session FIRST —
+            if (saved) api.setToken(saved);        // a guest bearer lets the backend LINK it
+          }
+          const cgTok = await cgGetUserToken();
+          if (cgTok) {
+            try {
+              const { token } = await api.crazyLogin(cgTok);
+              if (token) api.setToken(token);   // CG identity outranks any saved session
+            } catch {}
+          }
+          if (!api.getToken()) {
+            try { const { token } = await api.guestLogin(); if (token) api.setToken(token); } catch {}
+          }
+          cgOnAuthChange(() => window.location.reload());  // mid-session CG login → clean re-boot
+        } else if (!api.getToken()) {
+          const saved = cgDataGet("gp_token");
+          if (saved) api.setToken(saved);
+        }
+      } catch {}
       if (api.getToken()) {
         try { const m = await api.me(); setUser(m.user); syncAccountLang(m.user?.language); await loadAll(); }
         catch { api.signOut(); }
@@ -200,7 +242,7 @@ const noticeWrap = { position: "fixed", right: 18, zIndex: 9998, display: "flex"
 function Boot() {
   return (
     <div style={{ height: "100%", display: "grid", placeItems: "center", background: "var(--ink)" }}>
-      <div className="display" style={{ fontSize: 46, color: "var(--hot)", letterSpacing: "0.08em" }}>IRON FRONTIER</div>
+      <div className="display" style={{ fontSize: 46, color: "var(--hot)", letterSpacing: "0.08em" }}>SANDBOX GP</div>
     </div>
   );
 }

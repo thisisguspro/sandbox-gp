@@ -36,6 +36,17 @@ export const config = {
   // Service-to-service secret: the game server uses this to fetch player
   // loadouts and report match results. NOT a player or admin credential.
   serviceKey: process.env.SERVICE_KEY || "dev-service-key",
+  // CrazyGames account integration. Tokens are verified against the public key
+  // CG hosts; tests inject their own keypair via CG_PUBLIC_KEY_FILE, and
+  // CG_GAME_ID (once the portal assigns one) pins tokens to this game.
+  cgPublicKeyUrl: process.env.CG_PUBLIC_KEY_URL || "https://sdk.crazygames.com/publicKey.json",
+  cgPublicKeyFile: process.env.CG_PUBLIC_KEY_FILE || null,
+  cgGameId: process.env.CG_GAME_ID || null,
+  // CrazyGames user-token verification. Production leaves this unset and the
+  // auth route fetches https://sdk.crazygames.com/publicKey.json (their key can
+  // rotate, so it's fetched fresh with a short cache). Tests inject a local
+  // test keypair here because the sandbox can't reach their CDN.
+  cgPublicKey: process.env.CG_JWT_PUBLIC_KEY || null,
 
   // Bootstrap super-admin: this Google email always has full admin power and can
   // grant/revoke admin to others. Override via env in production.

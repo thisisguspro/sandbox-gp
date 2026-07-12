@@ -8,6 +8,9 @@ import { playScene } from "../api/music.js";
 import { PlayerActions } from "../components/CrewActions.jsx";
 import PremiumBadge, { PREMIUM_MULT } from "../components/PremiumBadge.jsx";
 import { useI18n } from "../api/i18n.jsx";
+import { analytics } from "../api/analytics.js";
+import { cgGameplayStart, cgGameplayStop, cgHappytime, cgUpdateRoom, cgClearRoom, cgMidgameAd } from "../api/crazygames.js";
+import Race3D from "./Race3D.jsx";
 
 function Countdown({ n, onGo, onDone }) {
   const { t } = useI18n();
@@ -76,7 +79,10 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
   const [countdown, setCountdown] = useState(null); // 3-2-1-GO race start intro
   const [inputLocked, setInputLocked] = useState(false); // freeze player input during the 3-2-1 stand-by
   const [liveEvents, setLiveEvents] = useState([]);
+  const raceEventsRef = useRef([]); // drained by Race3D each frame
   const prevPhase = useRef(null);
+  const raceStartAt = useRef(0);
+  const [questsRefresh, setQuestsRefresh] = useState(0);
   const seenEvents = useRef(new Set());
   // Kept in refs so the socket's onConnect (a long-lived closure) can see the
   // CURRENT room/seat when it reconnects after a transient drop.
@@ -94,6 +100,11 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     const c = createGameConnection({
       onState: (v) => setView(v),
       onEvents: (events) => {
+        // Race events go into a DRAIN QUEUE, not last-write state: React
+        // coalesces rapid state updates (guaranteed on slow devices), and a
+        // transient batch like item_used must never be swallowed by the empty
+        // batch that follows it one tick later.
+        if (events?.length) raceEventsRef.current.push(...events);
         setLiveEvents(events); // latest batch, for the comms/caption layer
         // Batch 1 stub: no per-event flashes; the ended-phase flash covers the
         // finish. Race events (overtakes, item hits) wire in with Batch 2.
@@ -130,14 +141,44 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
         // the "DRAW!" lands exactly when the server releases movement.
         setCountdown(Math.max(1, Math.ceil(view.startFreezeLeft || 3)));
         setInputLocked(true);
+        raceStartAt.current = Date.now();
+        cgGameplayStart();
+        const players = view.players || [];
+        const bots = players.filter((p) => p.isBot || /^(Puddle|Splasher|Riptide) Bot/.test(p.name || "")).length;
+        analytics.raceStart({
+          players: players.length,
+          bots,
+          humans: players.length - bots,
+          map: view.map?.id,
+          laps: view.map?.laps,
+        });
       }
       if (ph === "ended") {
+        setQuestsRefresh((n) => n + 1);   // pull fresh quest progress for the panel
         const p1 = view.you?.place === 1;
         setFlash({ text: (p1 ? "VICTORY" : "FINISH").toUpperCase(), sub: p1 ? "CHECKERED FLAG!" : "RACE COMPLETE", color: p1 ? "var(--volt)" : "var(--gold)" });
+        cgGameplayStop();
+        if (p1) cgHappytime();   // platform confetti — wins only, per CG docs
+        analytics.raceComplete({
+          place: view.you?.place,
+          players: (view.players || []).length,
+          won: p1,
+          durationSec: raceStartAt.current ? Math.round((Date.now() - raceStartAt.current) / 1000) : undefined,
+        });
       }
       prevPhase.current = ph;
     }
   }, [view]);
+
+  // Report our room to the CrazyGames platform (invite button, friend join,
+  // presence). Joinable only while the lobby is open with a free seat.
+  useEffect(() => {
+    if (!roomId) return;
+    const players = view?.players || [];
+    const maxP = view?.map?.maxPlayers || 4;
+    const joinable = view?.phase === "lobby" && players.length < maxP;
+    cgUpdateRoom(roomId, { joinable });
+  }, [roomId, view?.phase, (view?.players || []).length]);
 
   const create = async () => {
     setError(null);
@@ -146,6 +187,7 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     if (res.playerId) playerIdRef.current = res.playerId;
     if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
     setRoomId(res.roomId);
+    analytics.lobbyEnter("host", res.roomId);
   };
   const joinByCode = async () => {
     if (!joinCode.trim()) return;
@@ -155,6 +197,7 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     if (res.playerId) playerIdRef.current = res.playerId;
     if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
     setRoomId(res.roomId);
+    analytics.lobbyEnter("code", res.roomId);
   };
   const joinRandom = async () => {
     const res = await conn.joinRandom(user.name);
@@ -162,8 +205,42 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     if (res.playerId) playerIdRef.current = res.playerId;
     if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
     setRoomId(res.roomId);
+    analytics.lobbyEnter("random", res.roomId);
   };
-  const leave = () => { if (conn) conn.disconnect(); setView(null); setRoomId(null); setLiveEvents([]); onRoomStatus?.(false); onChange?.(); };
+  // One click → hosted room → immediate start; the server fills the grid with
+  // bots. The shortest path from menu to racing.
+  const quickPlay = async () => {
+    setError(null);
+    const res = await conn.createRoom({ isPublic: false }, user.name);
+    if (res.error) return setError(res.error);
+    if (res.playerId) playerIdRef.current = res.playerId;
+    if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
+    setRoomId(res.roomId);
+    analytics.lobbyEnter("quick", res.roomId);
+    conn.startMatch(res.roomId);
+  };
+  // Solo, no items, three laps against the clock. Best lap posts to the weekly board.
+  const timeTrial = async () => {
+    setError(null);
+    const res = await conn.createRoom({ isPublic: false, mode: "timetrial", items: false, autoFill: false, laps: 3 }, user.name);
+    if (res.error) return setError(res.error);
+    if (res.playerId) playerIdRef.current = res.playerId;
+    if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
+    setRoomId(res.roomId);
+    analytics.lobbyEnter("timetrial", res.roomId);
+    conn.startMatch(res.roomId);
+  };
+  const leave = () => {
+    // if they bail during an active race, that's an abandonment worth measuring
+    if (view?.phase === "active") {
+      analytics.raceLeave({ lap: view.you?.lap, place: view.you?.place, players: (view.players || []).length });
+    }
+    cgGameplayStop();
+    cgClearRoom();
+    if (conn && roomId) conn.leaveRoom(roomId);   // unseat server-side, keep the socket
+    roomIdRef.current = null;                     // never grace-rejoin a room we quit
+    setView(null); setRoomId(null); setLiveEvents([]); onRoomStatus?.(false); onChange?.();
+  };
 
   // Consume a direct/invite join handed down by App: once our game socket is
   // connected and we're not already seated, join the target room the normal way.
@@ -198,27 +275,88 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
       <div style={{ position: "relative", zIndex: 2, height: "100%" }}>
         {joke && <JokeScreen onClose={() => { setJoke(false); setJoinCode(""); }} />}
         {!roomId && !joke && <LobbyEntry connected={connected} joinCode={joinCode} setJoinCode={setJoinCode}
-          onCreate={create} onJoinCode={joinByCode} onRandom={joinRandom} />}
+          onCreate={create} onJoinCode={joinByCode} onRandom={joinRandom}
+          onQuickPlay={quickPlay} onTimeTrial={timeTrial}
+          questsSlot={<DailyQuests refreshKey={questsRefresh} />} />}
         {roomId && !inMatch && <LobbyRoom view={view} roomId={roomId} conn={conn} isHost={view?.you?.id === view?.hostId} onLeave={leave} />}
-        {roomId && view?.phase === "active" && <RaceStub view={view} roomId={roomId} conn={conn} inputLocked={inputLocked || ((view?.startFreezeLeft ?? 0) > 0)} onLeave={leave} />}
+        {roomId && view?.phase === "active" && <Race3D view={view} roomId={roomId} conn={conn} inputLocked={inputLocked || ((view?.startFreezeLeft ?? 0) > 0)} onLeave={leave} eventQueue={raceEventsRef} />}
         {roomId && view?.phase === "ended" && <Results view={view} roomId={roomId} conn={conn} profile={profile} catalogue={catalogue}
-          onLeave={() => { setRoomId(null); setView(null); onChange?.(); }} onChange={onChange} />}
+          onLeave={() => { cgClearRoom(); if (conn && roomId) conn.leaveRoom(roomId); roomIdRef.current = null; cgMidgameAd(() => { setRoomId(null); setView(null); onChange?.(); }); }} onChange={onChange} />}
       </div>
     </div>
   );
 }
 
 /* ---------------- lobby entry ---------------- */
-function LobbyEntry({ connected, joinCode, setJoinCode, onCreate, onJoinCode, onRandom }) {
+// Daily quests + login streak — the "reason to come back tomorrow" panel.
+// Server-authoritative: progress moves only via reported match results.
+function DailyQuests({ refreshKey }) {
+  const [data, setData] = useState(null);
+  const [justClaimed, setJustClaimed] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    api.getDaily().then((d) => alive && !d?.error && setData(d)).catch(() => {});
+    return () => { alive = false; };
+  }, [refreshKey]);
+  if (!data) return null;
+  const claim = async (q) => {
+    const res = await api.claimQuest(q.id);
+    if (res?.ok) {
+      setJustClaimed(q.id);
+      setData((d) => ({ ...d, balance: res.balance, quests: d.quests.map((x) => x.id === q.id ? { ...x, claimed: true } : x) }));
+      setTimeout(() => setJustClaimed(null), 1600);
+    }
+  };
+  return (
+    <div className="leather-panel" style={{ marginTop: 16, padding: 16, textAlign: "left" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10 }}>
+        <span className="impactf" style={{ fontSize: 13, letterSpacing: "0.12em", color: "var(--gold)", textTransform: "uppercase" }}>Daily Quests</span>
+        <span className="dim" style={{ fontSize: 12 }}>🔥 Day {data.streak.count} streak · +{data.streak.todayReward} 🐚 banked</span>
+        <span style={{ flex: 1 }} />
+        <span className="dim" style={{ fontSize: 12 }}>Resets at midnight UTC</span>
+      </div>
+      {data.quests.map((q) => {
+        const done = q.progress >= q.goal;
+        const pct = Math.min(100, Math.round((q.progress / q.goal) * 100));
+        return (
+          <div key={q.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "7px 0", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, color: done ? "var(--gold)" : "var(--paper)" }}>{q.label}</div>
+              <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.1)", marginTop: 5, overflow: "hidden" }}>
+                <div style={{ width: `${pct}%`, height: "100%", background: done ? "var(--gold)" : "var(--volt)", transition: "width 0.4s ease" }} />
+              </div>
+            </div>
+            <div className="dim" style={{ fontSize: 12, minWidth: 44, textAlign: "right" }}>{q.progress}/{q.goal}</div>
+            {q.claimed
+              ? <span className="dim" style={{ fontSize: 12, minWidth: 86, textAlign: "center" }}>✓ Claimed</span>
+              : <button className={done ? "btn btn-hot" : "btn"} disabled={!done} onClick={() => claim(q)}
+                  style={{ fontSize: 12, minWidth: 86, animation: justClaimed === q.id ? "gpPulse 0.3s 3 alternate" : "none" }}>
+                  +{q.reward} 🐚
+                </button>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LobbyEntry({ connected, joinCode, setJoinCode, onCreate, onJoinCode, onRandom, onQuickPlay, onTimeTrial, questsSlot }) {
   const { t } = useI18n();
   return (
-    <div style={{ height: "100%", display: "grid", placeItems: "center", padding: 24 }}>
-      <div style={{ textAlign: "center", maxWidth: 720 }}>
+    <div data-qa="landing" style={{ height: "100%", display: "grid", placeItems: "center", padding: 24, overflowY: "auto" }}>
+      <div style={{ textAlign: "center", maxWidth: 720, width: "100%" }}>
         <h1 className="display" style={{ fontSize: "clamp(60px,10vw,120px)", margin: "4px 0 6px", color: "var(--paper)", textTransform: "uppercase" }}>{t("play.lobby.deploy")}</h1>
         <div className="impactf dim" style={{ letterSpacing: "0.2em", marginBottom: 4, textTransform: "uppercase" }}>
           {connected ? t("play.lobby.fleetLinkEstablished") : t("play.lobby.connectingToFleet")}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 30 }}>
+        {/* QUICK PLAY: one click → hosted, bot-filled, racing. The straightest
+            possible line to gameplay (the portal metric that matters most). */}
+        <button className="wood-panel" onClick={onQuickPlay} disabled={!connected}
+          style={{ ...bigChoice, width: "100%", marginTop: 22, padding: "18px 22px", borderColor: "var(--gold)" }}>
+          <div className="display branded-text" style={{ fontSize: 44, color: "var(--gold)" }}>⚡ QUICK PLAY</div>
+          <div className="dim" style={{ fontSize: 13 }}>Straight to the starting grid — bots fill the field</div>
+        </button>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
           <button className="wood-panel" style={bigChoice} onClick={onCreate} disabled={!connected}>
             <div className="display branded-text" style={{ fontSize: 34, color: "var(--gold)" }}>{t("play.lobby.hostMatch")}</div>
             <div className="dim" style={{ fontSize: 13 }}>{t("play.lobby.hostMatchDesc")}</div>
@@ -233,7 +371,12 @@ function LobbyEntry({ connected, joinCode, setJoinCode, onCreate, onJoinCode, on
           <input value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase())} maxLength={5}
             placeholder="ABCDE" style={codeInput} onKeyDown={(e) => e.key === "Enter" && onJoinCode()} />
           <button className="btn btn-hot" onClick={onJoinCode} disabled={!connected}>{t("play.lobby.join")}</button>
+          <span style={{ flex: 1 }} />
+          <button className="btn" onClick={onTimeTrial} disabled={!connected} title="Solo. No items. Just you and the clock — best lap goes on the weekly board.">
+            ⏱ TIME TRIAL
+          </button>
         </div>
+        {questsSlot}
       </div>
     </div>
   );
@@ -574,12 +717,13 @@ function LobbyRoom({ view, roomId, conn, isHost, onLeave }) {
 
 
         {isHost ? (
+          <>
           <button
             style={{
               ...beginDraftBtn,
               fontSize: 15,
               padding: "14px 18px",
-              marginBottom: 28,
+              marginBottom: (enough && players.length < (view?.map?.maxPlayers || 4)) ? 8 : 28,
               background: enough ? "var(--hot)" : "rgba(255, 77, 28,0.4)",
               cursor: enough ? "pointer" : "not-allowed"
             }}
@@ -590,6 +734,12 @@ function LobbyRoom({ view, roomId, conn, isHost, onLeave }) {
               {enough ? "START RACE" : `NEED ${min - players.length} MORE RACER${min - players.length === 1 ? "" : "S"}`}
             </span>
           </button>
+          {enough && players.length < (view?.map?.maxPlayers || 4) && (
+            <div className="dim" style={{ fontSize: 12, textAlign: "center", marginBottom: 22, fontWeight: 600, letterSpacing: "0.02em" }}>
+              🤖 Bots fill the empty {(view?.map?.maxPlayers || 4) - players.length} {((view?.map?.maxPlayers || 4) - players.length) === 1 ? "seat" : "seats"} — jump in and race now
+            </div>
+          )}
+          </>
         ) : (
           <button
             style={{
@@ -628,44 +778,6 @@ function LobbyRoom({ view, roomId, conn, isHost, onLeave }) {
    Placeholder in-race screen: live standings driven entirely by the server's
    authoritative view. The Three.js track, driving input, camera, and the
    hoop/challenge system replace this component in Batch 2. */
-function RaceStub({ view, roomId, conn, inputLocked, onLeave }) {
-  const standings = view.standings || [];
-  const you = view.you || {};
-  const timeLeft = Math.ceil(view.timeLeft || 0);
-  return (
-    <div style={{ height: "100%", display: "grid", placeItems: "center", padding: 24 }}>
-      <div className="panel" style={{ width: "min(680px, 94vw)", padding: 28 }}>
-        <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-          <h2 className="display" style={{ margin: 0, fontSize: 34, color: "var(--gold)" }}>RACE IN PROGRESS</h2>
-          <span className="impactf dim" style={{ fontSize: 14 }}>{inputLocked ? "GET READY…" : `${timeLeft}s`}</span>
-        </div>
-        <div className="faint" style={{ fontSize: 12, marginBottom: 18 }}>
-          Placeholder race — cars drive themselves while the real track is under construction. Standings are live from the server.
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {standings.map((p) => (
-            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, opacity: p.connected === false ? 0.5 : 1 }}>
-              <span className="impactf" style={{ width: 34, fontSize: 15, color: p.place === 1 ? "var(--gold)" : "var(--dim)" }}>
-                {p.place ? `${p.place}${["st","nd","rd"][p.place - 1] || "th"}` : "—"}
-              </span>
-              <span style={{ width: 12, height: 12, borderRadius: "50%", flexShrink: 0, background: p.idColor || "var(--dim)", border: "2px solid var(--ink)" }} />
-              <span style={{ fontWeight: 700, fontSize: 14, width: 150, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {p.name}{p.id === you.id ? " (you)" : ""}{p.isBot ? " [BOT]" : ""}
-              </span>
-              <div style={{ flex: 1, height: 12, background: "var(--ink)", border: "1px solid var(--line)", overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${p.progress || 0}%`, background: p.finished ? "var(--volt)" : "var(--gold)", transition: "width 0.25s linear" }} />
-              </div>
-              <span className="impactf" style={{ width: 44, fontSize: 12, textAlign: "right", color: p.finished ? "var(--volt)" : "var(--dim)" }}>
-                {p.finished ? "FIN" : `${Math.floor(p.progress || 0)}%`}
-              </span>
-            </div>
-          ))}
-        </div>
-        <button className="btn" style={{ marginTop: 22, fontSize: 13 }} onClick={onLeave}>ABANDON RACE</button>
-      </div>
-    </div>
-  );
-}
 
 const WIN_REASON_TEXT = {
   finish: "Every racer crossed the line.",
@@ -687,8 +799,33 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
   // Rewards mirror the backend rule: base 50 XP (+75 if your side won), 10 Silver
   // on a win — and the Gold Trail pass multiplies both while it's active.
   const premiumActive = !!profile?.premium;
-  const xpGain = Math.round((50 + (iWon ? 75 : 0)) * (premiumActive ? PREMIUM_MULT : 1));
-  const creditGain = Math.round((iWon ? 10 : 0) * (premiumActive ? PREMIUM_MULT : 1));
+  // Mirrors the backend reward rules exactly (see ingestMatchResult):
+  // RACE — place pays 12/8/5/3 Seashells, 50 XP +75 win, both × laps/3 (cap 1).
+  // TIME TRIAL — flat 2 Seashells + 30 XP; the weekly board is the prize.
+  const isTimeTrial = view.mode === "timetrial";
+  const lapsFactor = Math.min(1, Math.max(1, view.map?.laps || 3) / 3);
+  const PLACE_PAY = [12, 8, 5, 3];
+  const baseXp = isTimeTrial ? 30 : Math.round((50 + (iWon ? 75 : 0)) * lapsFactor);
+  const baseCredits = isTimeTrial ? 2 : Math.round((PLACE_PAY[Math.min((myPlace || 4) - 1, 3)] || 3) * lapsFactor);
+  const xpGain = Math.round(baseXp * (premiumActive ? PREMIUM_MULT : 1));
+  const creditGain = Math.round(baseCredits * (premiumActive ? PREMIUM_MULT : 1));
+  // Rank ladder: fresh from the server (post-ingest), compared against the
+  // pre-race profile level to catch the LEVEL UP moment.
+  const [ladder, setLadder] = useState(null);
+  const leveledUp = ladder && profile?.level != null && ladder.level > profile.level;
+  useEffect(() => {
+    let alive = true;
+    api.getProgress().then((p) => alive && !p?.error && setLadder(p)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  // Time trial: your clock + the weekly board instead of a combat report.
+  const [lapBoard, setLapBoard] = useState(null);
+  useEffect(() => {
+    if (!isTimeTrial) return;
+    let alive = true;
+    api.getLapBoard().then((b) => alive && !b?.error && setLapBoard(b)).catch(() => {});
+    return () => { alive = false; };
+  }, [isTimeTrial]);
   const [rematchSent, setRematchSent] = useState(false);
   const [unlocked, setUnlocked] = useState([]); // newly-earned achievements to toast
   const [karmaGiven, setKarmaGiven] = useState([]); // userIds we've given karma this match (cap 2)
@@ -733,7 +870,14 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
 
   // If the host rematches, the room flips back to lobby — Play's phase switch
   // handles the screen change; we just fire the action.
-  const rematch = () => { conn.rematch(roomId); setRematchSent(true); };
+  const rematch = () => {
+    setRematchSent(true);                 // lock the button while the ad break runs
+    analytics.rematch(roomId);
+    cgMidgameAd(() => {
+      conn.rematch(roomId);
+      if (isTimeTrial) setTimeout(() => conn.startMatch(roomId), 400); // straight back to the clock
+    });
+  };
 
   return (
     <div style={{ height: "100%", position: "relative", overflow: "hidden", background: "radial-gradient(120% 100% at 50% 0%, #1d1626 0%, var(--ink) 60%)" }}>
@@ -747,7 +891,7 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
           </h1>
           <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
             <div style={{ ...resultBadge, margin: 0, padding: "5px 14px", fontSize: 12, borderColor: iWon ? "var(--gold)" : "var(--faint)", color: iWon ? "var(--gold)" : "var(--dim)" }}>
-              {iWon ? t("play.hud.youWon") : t("play.hud.youLost")} · {placeLabel(myPlace)}
+              {iWon ? `${t("play.hud.youWon")} · ${placeLabel(myPlace)}` : myPlace <= 3 ? `PODIUM · ${placeLabel(myPlace)}` : placeLabel(myPlace)}
             </div>
             <div className="dim" style={{ fontSize: 13, fontWeight: 600 }}>{WIN_REASON_TEXT[view.winReason] || "Race complete."}</div>
           </div>
@@ -783,8 +927,42 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
             80% { transform: translateY(0); }
           }`}</style>
 
-          <div className="tag" style={{ margin: "18px 0 10px" }}><span>FINAL STANDINGS</span></div>
-          <div className="row gap-s" style={{ flexWrap: "wrap", marginBottom: 16 }}>
+          {isTimeTrial && (
+            <div className="leather-panel" style={{ margin: "18px 0 14px", padding: 16 }}>
+              <div className="tag" style={{ marginBottom: 10 }}><span>⏱ TIME TRIAL</span></div>
+              <div className="row" style={{ gap: 26, alignItems: "baseline" }}>
+                <div>
+                  <div className="impactf faint" style={{ fontSize: 11, letterSpacing: "0.12em" }}>YOUR TOTAL</div>
+                  <div className="display" style={{ fontSize: 40, color: "var(--gold)" }}>{you.totalSec ? `${you.totalSec.toFixed(2)}s` : "—"}</div>
+                </div>
+                <div>
+                  <div className="impactf faint" style={{ fontSize: 11, letterSpacing: "0.12em" }}>BEST LAP</div>
+                  <div className="display" style={{ fontSize: 40, color: "var(--volt)" }}>{you.bestLapSec ? `${you.bestLapSec.toFixed(2)}s` : "—"}</div>
+                </div>
+              </div>
+              {lapBoard && (
+                <div style={{ marginTop: 12 }}>
+                  <div className="impactf faint" style={{ fontSize: 11, letterSpacing: "0.12em", marginBottom: 6 }}>THIS WEEK'S FASTEST LAPS</div>
+                  {lapBoard.rows.slice(0, 5).map((r, i) => (
+                    <div key={r.userId} className="row" style={{ gap: 10, fontSize: 13, padding: "3px 0", color: r.userId === profile?.id ? "var(--gold)" : "var(--paper)" }}>
+                      <span className="impactf" style={{ width: 18, color: "var(--dim)" }}>{i + 1}</span>
+                      <span style={{ flex: 1 }}>{r.name}{r.userId === profile?.id ? " (you)" : ""}</span>
+                      <span className="impactf">{r.bestLapSec.toFixed(2)}s</span>
+                    </div>
+                  ))}
+                  {lapBoard.you && !lapBoard.rows.slice(0, 5).some((r) => r.userId === profile?.id) && (
+                    <div className="row" style={{ gap: 10, fontSize: 13, padding: "3px 0", color: "var(--gold)", borderTop: "1px dashed var(--line)", marginTop: 4 }}>
+                      <span className="impactf" style={{ width: 18 }}>·</span>
+                      <span style={{ flex: 1 }}>{lapBoard.you.name} (you)</span>
+                      <span className="impactf">{lapBoard.you.bestLapSec.toFixed(2)}s</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          {!isTimeTrial && <div className="tag" style={{ margin: "18px 0 10px" }}><span>FINAL STANDINGS</span></div>}
+          {!isTimeTrial && <div className="row gap-s" style={{ flexWrap: "wrap", marginBottom: 16 }}>
             {standings.map((p) => (
               <div key={p.id} className="panel" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderColor: p.place === 1 ? "var(--gold)" : "var(--line)" }}>
                 <span className="impactf" style={{ fontSize: 12, color: p.place === 1 ? "var(--gold)" : "var(--dim)" }}>{p.place ?? "—"}</span>
@@ -792,7 +970,7 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
                 <span className="impactf" style={{ fontSize: 14 }}>{p.name}{p.id === you.id ? " (you)" : ""}</span>
               </div>
             ))}
-          </div>
+          </div>}
 
           <div className="tag" style={{ marginBottom: 8 }}><span>{t("play.hud.finalRoster")}</span></div>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>{t("play.hud.karmaHint")}</div>
@@ -832,6 +1010,16 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
             {creditGain > 0 && (
               <div className="impactf" style={{ fontSize: 14, marginTop: 8, color: "var(--volt)" }}>
                 +{creditGain} {t("play.hud.silverNuggets")}
+              </div>
+            )}
+            {leveledUp && (
+              <div className="display" style={{ fontSize: 30, marginTop: 12, color: "var(--volt)", animation: "gpPulse 0.4s 4 alternate" }}>
+                ⭐ LEVEL UP! — RANK {ladder.level}
+              </div>
+            )}
+            {ladder?.next && (
+              <div className="dim" style={{ fontSize: 12, marginTop: leveledUp ? 4 : 10 }}>
+                Next unlock at LV {ladder.next.level} · {ladder.next.xpNeeded} XP away{ladder.next.note ? ` — ${ladder.next.note}` : ""}
               </div>
             )}
           </div>

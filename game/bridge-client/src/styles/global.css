@@ -1,11 +1,10 @@
 /* ============================================================
-   BRIDGE — IRON FRONTIER design system.
-   Direction: a neon SPACE-WESTERN title card aboard a futuristic hover-train
-   crossing a red-rock desert at dusk. Loud, kinetic, high-contrast anime energy
-   fused with frontier grit. Tall poster caps (Bebas), chunky impact (Russo One),
-   kanji-flavored flourishes (Reggae One), data in Rajdhani. Signature motifs:
-   diagonal SPEED LINES, radial IMPACT bursts on actions, and a blazing
-   sunset-vermilion accent over brass + desert-turquoise neon.
+   SANDBOX GP design system.
+   Direction: a SUNSET BOARDWALK title card — beach kart mayhem at golden hour.
+   Loud, kinetic, high-contrast toy-commercial energy. Tall poster caps (Bebas),
+   chunky impact (Russo One), playful flourishes (Reggae One), data in Rajdhani.
+   Signature motifs: diagonal SPEED LINES, radial IMPACT bursts on actions, and
+   a coral-sunset accent over sunny gold + true beach turquoise (water only).
    ============================================================ */
 
 :root {
@@ -15,9 +14,9 @@
   --ink-3:      #241a10;   /* leather / wood cards */
   --line:       #5e3d1f;   /* worn brass / weathered wood lines */
   --paper:      #fdf4e3;   /* aged-parchment flash */
-  --hot:        #ff4d1c;   /* blazing sunset vermilion — the hero accent */
+  --hot:        #ff5a3c;   /* sunset coral — the hero accent */
   --hot-deep:   #a8300f;
-  --gold:       #ffc23d;   /* brass / desert-noon gold */
+  --gold:       #f2b134;   /* sunny boardwalk gold */
   --volt:       #26e0c6;   /* electric turquoise / energy plane */
   --violet:     #c23a7a;   /* prickly-pear magenta / outlaw undertone */
   --dim:        #9b855f;   /* dusty tan */
@@ -265,3 +264,6 @@ button { font-family: var(--body); cursor: pointer; border: none; background: no
 .center { align-items: center; justify-content: center; }
 .dim { color: var(--dim); }
 .faint { color: var(--faint); }
+
+/* SANDBOX GP race HUD */
+@keyframes gpPulse { from { transform: scale(1); } to { transform: scale(1.06); } }

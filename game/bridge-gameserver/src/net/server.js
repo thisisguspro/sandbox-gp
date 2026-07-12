@@ -70,7 +70,7 @@ function broadcast(room) {
 // Authoritative clock. Runs at 10 Hz so continuous movement looks real-time;
 // every game system is dt-scaled, so dt=0.1 keeps per-second tuning identical to
 // the old 1 Hz loop. We broadcast every tick (10/sec) during active play.
-const TICK_HZ = 10;
+const TICK_HZ = 20;
 const TICK_DT = 1 / TICK_HZ;
 function ensureTicker(room) {
   if (room.ticker) return;
@@ -249,6 +249,11 @@ io.on("connection", (socket) => {
     if (socket.id !== room.hostSocketId) return socket.emit("error_msg", "Only the host can start.");
     const pid = room.playerIdOf(socket.id);
     const force = room.engine.isEventHost(pid); // event hosts may start below the map minimum
+    // Auto bot-fill: top the grid up so nobody races an empty track. On by
+    // default; event hosts / custom formats can turn it off via room config.
+    if (room.engine.config.autoFill !== false && room.engine.phase === PHASE.LOBBY) {
+      room.fillBots();
+    }
     try { room.engine.start({ force }); ensureTicker(room); broadcast(room); }
     catch (e) { socket.emit("error_msg", e.message); }
   });
@@ -270,6 +275,12 @@ io.on("connection", (socket) => {
   // with the real RaceEngine in Batch 2 as: socket.on("race_input", ...).
   socket.on("speech", ({ roomId, text }) => act(roomId, (r, pid) => r.engine.sendSpeech(pid, text ?? null)));
   socket.on("emote", ({ roomId, emoteId }) => act(roomId, (r, pid) => r.engine.setEmote(pid, emoteId)));
+  // Driving input: high-frequency, quiet (a reconnecting socket flushes stale
+  // inputs before its rejoin lands — those must never toast errors).
+  socket.on("race_input", ({ roomId, throttle, steer } = {}) => act(roomId, (r, pid) => r.engine.setInput(pid, { throttle, steer }), { quiet: true }));
+  // The shovel scoop: respawn on the centerline at a dead stop (soft penalty).
+  socket.on("race_reset", ({ roomId } = {}) => act(roomId, (r, pid) => r.engine.requestReset(pid), { quiet: true }));
+  socket.on("race_use", ({ roomId } = {}) => act(roomId, (r, pid) => r.engine.useItem(pid), { quiet: true }));
 
   // ===================== SOCIAL: presence + lobby invites (Task #3) =====================
 
@@ -361,6 +372,22 @@ io.on("connection", (socket) => {
     if (!room || room.engine.phase !== PHASE.LOBBY) return cb?.({ error: "Your friend isn't in an open lobby." });
     if (room.engine.players.size >= room.engine.map.maxPlayers) return cb?.({ error: "That lobby is full." });
     cb?.({ ok: true, roomId });
+  });
+
+  // Intentional exit: unseat the player but KEEP the socket alive so the
+  // Play screen stays usable (host again / join again without a reload).
+  // Found by QA: leaving via socket-disconnect stranded the client with a
+  // permanently disabled Host Match button.
+  socket.on("leave_room", ({ roomId } = {}) => {
+    const room = rooms.get(roomId);
+    if (!room || !room.sockets.has(socket.id)) return;
+    const playerId = room.detach(socket.id);
+    if (playerId) {
+      try { room.engine.removePlayer(playerId); } catch {}
+      room.rejoinTokens?.delete(playerId);
+    }
+    if (room.isEmpty() && (!room.pendingRejoin || room.pendingRejoin.size === 0)) rooms.destroy(room.id);
+    else broadcast(room);
   });
 
   socket.on("disconnect", () => {

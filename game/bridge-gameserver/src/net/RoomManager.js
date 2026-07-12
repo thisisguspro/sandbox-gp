@@ -99,6 +99,25 @@ export class Room {
     this.botState.delete(playerId);
     return true;
   }
+
+  // Auto-fill the grid up to `target` racers with bots. Empty/half-empty lobbies
+  // are the #1 retention killer in real-time multiplayer — a solo player should
+  // always drop into a full, lively race rather than an empty track. Tiers are
+  // spread (a mix of Puddle/Splasher/Riptide) so the field feels varied, and the
+  // added bots are tracked like manual ones so rematch re-seats them. Returns the
+  // number of bots added.
+  fillBots(target = this.engine.map.maxPlayers) {
+    const cap = Math.min(target, this.engine.map.maxPlayers);
+    // Rotate tiers so a filled grid isn't all one difficulty.
+    const spread = ["pilot", "recruit", "ace", "pilot"];
+    let added = 0;
+    while (this.engine.players.size < cap) {
+      const tier = spread[(this.bots.length) % spread.length];
+      this.addBot(tier);
+      added++;
+    }
+    return added;
+  }
   playerIdOf(socketId) { return this.sockets.get(socketId); }
   isEmpty() { return this.sockets.size === 0; }
 
@@ -160,5 +179,5 @@ export class RoomManager {
 
 // Display name for a bot tier (used in the auto-generated bot name).
 function tierName(tier) {
-  return { recruit: "Recruit", pilot: "Pilot", ace: "Ace" }[tier] || "Pilot";
+  return { recruit: "Puddle", pilot: "Splasher", ace: "Riptide" }[tier] || "Splasher";
 }

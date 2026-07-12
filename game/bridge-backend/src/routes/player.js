@@ -23,6 +23,37 @@ playerRouter.get("/wallet", requireAuth, async (req, res) => {
 // ----- news (player-facing announcements) -----
 // Live tiles only (published, or scheduled past their time), each flagged unread
 // against this account's last-seen revision. `unread` = at least one new tile.
+// ---- SANDBOX GP: daily quests + streak ----
+playerRouter.get("/daily", requireAuth, async (req, res) => {
+  console.log('[daily] route hit, user', req.userId);
+  try { const out = await db.getDaily(req.userId); console.log('[daily] store returned'); res.json(out); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+playerRouter.post("/daily/claim", requireAuth, async (req, res) => {
+  try {
+    const out = await db.claimDailyQuest(req.userId, String(req.body?.questId || ""));
+    if (out.error) return res.status(400).json(out);
+    res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Rank ladder: where the player stands and what the next level unlocks.
+playerRouter.get("/progress", requireAuth, async (req, res) => {
+  try { res.json(await db.getProgress(req.userId)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Weekly best-lap leaderboard (time-trial mode). Auth'd so we can mark "you".
+playerRouter.get("/leaderboard/laps", requireAuth, async (req, res) => {
+  const board = await db.weeklyBestLaps(10);
+  const youRow = board.rows.find((r) => r.userId === req.userId) || null;
+  const u = await db.getUser(req.userId);
+  const you = youRow || (u?.weeklyLap?.weekKey === board.weekKey && u.weeklyLap.bestLapSec > 0
+    ? { userId: u.id, name: u.name, bestLapSec: u.weeklyLap.bestLapSec, totalSec: u.weeklyLap.totalSec }
+    : null);
+  res.json({ ...board, you });
+});
+
 playerRouter.get("/news", requireAuth, async (req, res) => {
   const news = await db.listLiveNews(req.userId);
   res.json({ news, unread: news.filter((n) => n.unread).length });

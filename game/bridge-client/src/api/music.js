@@ -26,7 +26,18 @@ function basePath() {
   try { return import.meta.env.BASE_URL || "/"; } catch { return "/"; }
 }
 
-function targetGain() { return clamp01(masterVol * musicVol); }
+let duckMul = 1;                     // 0 while a video ad plays (CrazyGames req)
+function targetGain() { return clamp01(masterVol * musicVol * duckMul); }
+
+// Hard-mute/unmute music without touching the user's slider settings.
+export function setMusicDucked(ducked) {
+  duckMul = ducked ? 0 : 1;
+  if (!currentScene) return;
+  const el = els[currentScene];
+  if (!el) return;
+  if (el._fadeTimer) fade(el, targetGain());
+  else el.volume = targetGain();
+}
 
 function ensureEl(scene) {
   if (els[scene]) return els[scene];

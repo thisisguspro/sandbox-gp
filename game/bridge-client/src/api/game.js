@@ -52,6 +52,10 @@ export function createGameConnection({ onState, onEvents, onError, onConnect, on
     inviteFriend: (roomId, friendId) => new Promise((r) => socket.emit("invite_friend", { roomId, friendId }, cb(r))),
     // in-match actions
     emote: (roomId, emoteId) => socket.emit("emote", { roomId, emoteId }),
+    raceInput: (roomId, throttle, steer) => socket.emit("race_input", { roomId, throttle, steer }),
+    raceReset: (roomId) => socket.emit("race_reset", { roomId }),
+    raceUse: (roomId) => socket.emit("race_use", { roomId }),
+    leaveRoom: (roomId) => socket.emit("leave_room", { roomId }),
     disconnect: () => socket.close(),
   };
 }

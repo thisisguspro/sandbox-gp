@@ -6,7 +6,15 @@ let sfxGain = null;                  // master gain for ALL sfx (honors the slid
 let masterVol = 0.4, sfxVol = 0.42;  // 0..1, from Master + Sound Effects sliders (defaults lowered 50%)
 
 function clamp01(n) { return Math.max(0, Math.min(1, n)); }
-function sfxTarget() { return clamp01(masterVol * sfxVol); }
+let duckMul = 1;                     // 0 while a video ad plays (CrazyGames req)
+function sfxTarget() { return clamp01(masterVol * sfxVol * duckMul); }
+
+// Hard-mute/unmute ALL sfx without touching the user's slider settings.
+// Used while platform video ads play (mute is a CrazyGames requirement).
+export function setAudioDucked(ducked) {
+  duckMul = ducked ? 0 : 1;
+  if (sfxGain && ctx) sfxGain.gain.setValueAtTime(sfxTarget(), ctx.currentTime);
+}
 // Route sfx through the master gain node once it exists, else straight to output.
 function dest() { return sfxGain || (ctx && ctx.destination); }
 
@@ -200,5 +208,85 @@ export const sfx = {
     playTone("sawtooth", 180, 0.35, 0.16, true);
     setTimeout(() => playTone("square", 660, 0.22, 0.12), 45);
     setTimeout(() => playTone("triangle", 990, 0.4, 0.1, true), 95);
-  }
+  },
+
+  // ---------- SANDBOX GP race sounds (synth placeholders) ----------
+  // Water splash: bright noise burst + descending bloop.
+  splash: () => {
+    playNoise(0.22, 0.28, true);
+    playTone("sine", 620, 0.24, 0.12, true);
+  },
+  // Balloon pop: dry crack + tiny bloop.
+  pop: () => {
+    playNoise(0.06, 0.3, true);
+    setTimeout(() => playTone("sine", 340, 0.12, 0.08, true), 25);
+  },
+  // Item fired: quick airy whoosh.
+  itemAway: () => {
+    playNoise(0.16, 0.18, true);
+    playTone("triangle", 300, 0.2, 0.08);
+  },
+  // Tier fanfare: rising two/three/four-note arpeggio by tier.
+  tier: (t) => {
+    const seq = { bronze: [392, 494], silver: [392, 494, 587], gold: [392, 494, 587, 784], s: [523, 659, 784, 1046] }[t] || [392, 494];
+    seq.forEach((f, i) => setTimeout(() => playTone("triangle", f, 0.18, 0.12), i * 90));
+  },
+  // Challenge start: bright double ping.
+  challenge: () => {
+    playTone("sine", 880, 0.1, 0.1);
+    setTimeout(() => playTone("sine", 1175, 0.14, 0.1), 90);
+  },
+  // Ring threaded: crisp ascending blip.
+  ring: () => playTone("sine", 1320, 0.09, 0.11),
+  // Kite latch: wobbling alarm — you're hooked!
+  kiteLatch: () => {
+    [420, 360, 420, 360].forEach((f, i) => setTimeout(() => playTone("square", f, 0.11, 0.09), i * 95));
+  },
+  // Kite break: springy release upward.
+  kiteBreak: () => {
+    playTone("sine", 300, 0.22, 0.12);
+    setTimeout(() => playTone("sine", 700, 0.18, 0.1), 60);
+  },
+  // Crumble: low crunchy collapse.
+  crumble: () => {
+    playNoise(0.4, 0.34);
+    playTone("sawtooth", 120, 0.45, 0.14, true);
+  },
+  // Bucket block: metallic clonk.
+  block: () => {
+    playTone("square", 240, 0.1, 0.14);
+    setTimeout(() => playTone("square", 180, 0.14, 0.1), 55);
+  },
+  // Turbo: rising slurp + fizz.
+  turbo: () => {
+    const now = ctx?.currentTime; if (now == null) return;
+    const osc = ctx.createOscillator(); const gain = ctx.createGain();
+    osc.type = "sine"; osc.connect(gain); gain.connect(dest());
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.5);
+    gain.gain.setValueAtTime(0.12, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.55);
+    osc.start(now); osc.stop(now + 0.6);
+    playNoise(0.3, 0.1, true);
+  },
+  // Lap chime: friendly two-note.
+  lap: () => {
+    playTone("triangle", 660, 0.14, 0.11);
+    setTimeout(() => playTone("triangle", 880, 0.2, 0.11), 110);
+  },
+  // FINAL LAP: urgent rising triplet — everything is on the line.
+  finalLap: () => {
+    [523, 659, 1046].forEach((f, i) => setTimeout(() => playTone("square", f, 0.16, 0.12), i * 130));
+  },
+  // Item roulette: fast ratchet tick while the chip spins, bright ding on land.
+  rouletteTick: () => playTone("square", 990, 0.03, 0.05),
+  rouletteLand: () => {
+    playTone("triangle", 784, 0.1, 0.12);
+    setTimeout(() => playTone("triangle", 1175, 0.18, 0.12), 90);
+  },
+  // Wrong way: two soft low blips (visual overlay carries the message).
+  wrongWay: () => {
+    playTone("square", 220, 0.12, 0.1);
+    setTimeout(() => playTone("square", 180, 0.16, 0.1), 160);
+  },
 };

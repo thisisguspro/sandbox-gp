@@ -24,6 +24,14 @@ async function req(path, { method = "GET", body, auth = true } = {}) {
 // --- auth ---
 // Google sign-in is the only path: exchange a verified Google ID token for a
 // session token.
+// ---- Sprint A/B: guest auth, daily quests, rank ladder, lap board ----
+export async function guestLogin(name) { return req("/auth/guest", { method: "POST", body: { name }, auth: false }); }
+export async function crazyLogin(token) { return req("/auth/crazygames", { method: "POST", body: { token }, auth: !!getToken() }); }
+export async function getDaily() { return req("/player/daily"); }
+export async function claimQuest(questId) { return req("/player/daily/claim", { method: "POST", body: { questId } }); }
+export async function getProgress() { return req("/player/progress"); }
+export async function getLapBoard() { return req("/player/leaderboard/laps"); }
+
 export async function signInGoogle(idToken) {
   const data = await req("/auth/google", { method: "POST", auth: false, body: { idToken } });
   if (data.token) setToken(data.token);

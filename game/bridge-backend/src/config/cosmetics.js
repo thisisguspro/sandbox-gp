@@ -171,14 +171,14 @@ export function levelForXp(xp) {
 // then slots open one at a time, with a perk unlock woven in. "approve/tweak"
 // territory — change freely.
 export const LEVEL_UNLOCKS = {
-  1:  { slots: ["breather", "oxygenTank", "weapon", "body", "background"], grants: ["breather_standard", "tank_standard", "tool_multitool", "body_jumpsuit", "body_mecha", "body_ronin", "bg_badlands"], note: "Starter kit — your respirator, battery, tool, basic costumes, and default vista." },
-  2:  { slots: ["bandana", "headpiece"], grants: ["bandana_standard", "head_cap"], note: "Bandana + headpiece slots unlocked." },
-  3:  { note: "Level 3 reached." },
-  4:  { grants: ["tank_finned"], note: "A new battery skin." },
-  5:  { slots: ["shoes"], grants: ["shoes_boots"], perks: ["LONGER_OXYGEN"], note: "Wheel slot + first perk available in drafts." },
-  6:  { slots: ["belt"], grants: ["belt_utility"], note: "Belt slot unlocked." },
-  7:  { slots: ["border"], grants: ["border_bronze"], note: "Profile border slot unlocked." },
-  8:  { slots: ["victoryPose"], grants: ["pose_salute"], perks: ["BIGGER_REACTOR"], note: "Victory pose slot + a perk." },
+  1:  { slots: ["breather", "oxygenTank", "weapon", "body", "background"], grants: ["breather_standard", "tank_standard", "tool_multitool", "body_jumpsuit", "body_mecha", "body_ronin", "bg_badlands"], note: "Starter kit — your snorkel, floaty, beach gear, and first kart looks." },
+  2:  { slots: ["bandana", "headpiece"], grants: ["bandana_standard", "head_cap"], note: "Bandana + headwear slots unlocked." },
+  3:  { note: "Level 3 — keep racing!" },
+  4:  { grants: ["tank_finned"], note: "A new floaty style." },
+  5:  { slots: ["shoes"], grants: ["shoes_boots"], perks: ["LONGER_OXYGEN"], note: "Wheel style slot + your first perk." },
+  6:  { slots: ["belt"], grants: ["belt_utility"], note: "Tow-rope slot unlocked." },
+  7:  { slots: ["border"], grants: ["border_bronze"], note: "Profile frame slot unlocked." },
+  8:  { slots: ["victoryPose"], grants: ["pose_salute"], perks: ["BIGGER_REACTOR"], note: "Victory pose slot + another perk." },
   9:  { slots: ["emote"], grants: ["emote_wave"], note: "Emote slot unlocked." },
   10: { grants: ["tool_wrench"], perks: ["EFFICIENT_TASKS", "FLEET_FEET"], note: "A new tool skin + more perks." },
   12: { perks: ["STURDY_HULL"], note: "Perk unlocked." },

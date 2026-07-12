@@ -4,10 +4,11 @@
 
 import { DEFAULT_CURRENCY, config, CONSUMABLES, PREMIUM_BONUS, LOYALTY_MILESTONES, LOYALTY_INACTIVITY_MS, AD_REWARD } from "../config/index.js";
 import {
-  COSMETICS, SLOTS, levelForXp, unlockedAt, defaultLoadout, LEVEL_UNLOCKS, COVERED_BY_BODY_SLOTS,
+  COSMETICS, SLOTS, levelForXp, xpForLevel, unlockedAt, defaultLoadout, LEVEL_UNLOCKS, COVERED_BY_BODY_SLOTS,
 } from "../config/cosmetics.js";
 import { DEFAULT_SETTINGS, defaultWheels, sanitizeSettings, WHEEL_SLOTS, DEFAULT_EMOTES } from "../config/settings.js";
 import { normalizeReward, EVENT_FLAGS } from "../config/events.js";
+import { questsForDay, QUEST_POOL, streakReward, utcDay } from "../config/quests.js";
 import {
   ACHIEVEMENTS, AVATARS, BORDERS, DEFAULT_AVATAR, DEFAULT_BORDER,
   evaluateAchievements, progressFor, weekKey,
@@ -49,10 +50,10 @@ function seed() {
   //   worth      — an internal "value" number (e.g. coin-out / accounting worth)
   // Admins edit all of these in the console; players only ever see price/name.
   const item = (o) => ({ kind: "item", enabled: true, dropWeight: 10, worth: 0, ...o });
-  storeItems.set("si_band_knot", item({ id:"si_band_knot", cosmeticId:"bandana_knot", name:"Knotted Bandana", rarity:"Common", currency:"CREDITS", price:150, dropWeight:70, worth:25 }));
-  storeItems.set("si_visor",     item({ id:"si_visor",     cosmeticId:"head_visor",   name:"Neon Visor",      rarity:"Rare",   currency:"CREDITS", price:600, dropWeight:24, worth:120 }));
-  storeItems.set("si_drill",     item({ id:"si_drill",     cosmeticId:"tool_drill",   name:"Steam Drill",    rarity:"Rare",   currency:"CREDITS", price:550, dropWeight:30, worth:110 }));
-  storeItems.set("si_glow",      item({ id:"si_glow",      cosmeticId:"shoes_glow",   name:"Glowstep Wheel",  rarity:"Epic",   currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_band_knot", item({ id:"si_band_knot", cosmeticId:"bandana_knot", name:"Knotted Bandana", rarity:"Common", currency:"CREDITS", price:500, dropWeight:70, worth:25 }));
+  storeItems.set("si_visor",     item({ id:"si_visor",     cosmeticId:"head_visor",   name:"Neon Visor",      rarity:"Rare",   currency:"CREDITS", price:700, dropWeight:24, worth:120 }));
+  storeItems.set("si_drill",     item({ id:"si_drill",     cosmeticId:"tool_drill",   name:"Steam Drill",    rarity:"Rare",   currency:"CREDITS", price:700, dropWeight:30, worth:110 }));
+  storeItems.set("si_glow",      item({ id:"si_glow",      cosmeticId:"shoes_glow",   name:"Glowstep Wheel",  rarity:"Epic",   currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   // PREMIUM (cash-adjacent) direct items — priceCents drives Stripe. $1 test items.
   storeItems.set("si_halo",      item({ id:"si_halo",      cosmeticId:"head_halo",    name:"Spirit Halo",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2,  worth:900 }));
   storeItems.set("si_ronin",     item({ id:"si_ronin",     cosmeticId:"body_ronin",   name:"Lone Drifter", rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:3,  worth:850 }));
@@ -65,53 +66,53 @@ function seed() {
   // ---- Store expansion: 30 anime-themed items. CREDITS items are earnable;
   // PREMIUM items are $1 cash (priceCents:100) for Stripe testing. ----
   // Breathers
-  storeItems.set("si_breather_koi",     item({ id:"si_breather_koi",     cosmeticId:"breather_koi",     name:"Catfish Filter",       rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_breather_kitsune", item({ id:"si_breather_kitsune", cosmeticId:"breather_kitsune", name:"Coyote Mask",     rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_breather_koi",     item({ id:"si_breather_koi",     cosmeticId:"breather_koi",     name:"Catfish Filter",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_breather_kitsune", item({ id:"si_breather_kitsune", cosmeticId:"breather_kitsune", name:"Coyote Mask",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   storeItems.set("si_breather_oni",     item({ id:"si_breather_oni",     cosmeticId:"breather_oni",     name:"Devil's Visage",       rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // O2 tanks
-  storeItems.set("si_tank_jet",         item({ id:"si_tank_jet",         cosmeticId:"tank_jet",         name:"Piston Cell",   rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_tank_sakura",      item({ id:"si_tank_sakura",      cosmeticId:"tank_sakura",      name:"Desert Bloom Cell",      rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_tank_jet",         item({ id:"si_tank_jet",         cosmeticId:"tank_jet",         name:"Piston Cell",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_tank_sakura",      item({ id:"si_tank_sakura",      cosmeticId:"tank_sakura",      name:"Desert Bloom Cell",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   storeItems.set("si_tank_dragon",      item({ id:"si_tank_dragon",      cosmeticId:"tank_dragon",      name:"Thunder Core",      rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Weapons
-  storeItems.set("si_tool_bokken",      item({ id:"si_tool_bokken",      cosmeticId:"tool_bokken",      name:"Training Cudgel",  rarity:"Common",    currency:"CREDITS", price:150,  dropWeight:70, worth:25 }));
-  storeItems.set("si_tool_fan",         item({ id:"si_tool_fan",         cosmeticId:"tool_fan",         name:"War Fan",          rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_tool_katana",      item({ id:"si_tool_katana",      cosmeticId:"tool_katana",      name:"Cavalry Saber",    rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_tool_bokken",      item({ id:"si_tool_bokken",      cosmeticId:"tool_bokken",      name:"Training Cudgel",  rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
+  storeItems.set("si_tool_fan",         item({ id:"si_tool_fan",         cosmeticId:"tool_fan",         name:"War Fan",          rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_tool_katana",      item({ id:"si_tool_katana",      cosmeticId:"tool_katana",      name:"Cavalry Saber",    rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   storeItems.set("si_tool_naginata",    item({ id:"si_tool_naginata",    cosmeticId:"tool_naginata",    name:"Marshal's Pike",    rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Bandanas
-  storeItems.set("si_band_hachimaki",   item({ id:"si_band_hachimaki",   cosmeticId:"bandana_hachimaki",name:"Dust Wrap",        rarity:"Common",    currency:"CREDITS", price:150,  dropWeight:70, worth:25 }));
-  storeItems.set("si_band_flame",       item({ id:"si_band_flame",       cosmeticId:"bandana_flame",    name:"Flame Wrap",       rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_band_storm",       item({ id:"si_band_storm",       cosmeticId:"bandana_storm",    name:"Storm Scarf",      rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_band_hachimaki",   item({ id:"si_band_hachimaki",   cosmeticId:"bandana_hachimaki",name:"Dust Wrap",        rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
+  storeItems.set("si_band_flame",       item({ id:"si_band_flame",       cosmeticId:"bandana_flame",    name:"Flame Wrap",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_band_storm",       item({ id:"si_band_storm",       cosmeticId:"bandana_storm",    name:"Storm Scarf",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   // Headpieces
-  storeItems.set("si_head_goggles",     item({ id:"si_head_goggles",     cosmeticId:"head_goggles",     name:"Dust Goggles",    rarity:"Common",    currency:"CREDITS", price:150,  dropWeight:70, worth:25 }));
-  storeItems.set("si_head_foxears",     item({ id:"si_head_foxears",     cosmeticId:"head_foxears",     name:"Coyote Ears",         rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_head_kabuto",      item({ id:"si_head_kabuto",      cosmeticId:"head_kabuto",      name:"Bandit Helm",      rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_head_goggles",     item({ id:"si_head_goggles",     cosmeticId:"head_goggles",     name:"Dust Goggles",    rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
+  storeItems.set("si_head_foxears",     item({ id:"si_head_foxears",     cosmeticId:"head_foxears",     name:"Coyote Ears",         rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_head_kabuto",      item({ id:"si_head_kabuto",      cosmeticId:"head_kabuto",      name:"Bandit Helm",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   storeItems.set("si_head_crown",       item({ id:"si_head_crown",       cosmeticId:"head_crown",       name:"Outlaw Crown",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Bodies
-  storeItems.set("si_body_pilotsuit",   item({ id:"si_body_pilotsuit",   cosmeticId:"body_pilotsuit",   name:"Gunslinger Rig",   rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_body_kimono",      item({ id:"si_body_kimono",      cosmeticId:"body_kimono",      name:"Star Poncho",      rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_body_pilotsuit",   item({ id:"si_body_pilotsuit",   cosmeticId:"body_pilotsuit",   name:"Gunslinger Rig",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_body_kimono",      item({ id:"si_body_kimono",      cosmeticId:"body_kimono",      name:"Star Poncho",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   storeItems.set("si_body_samurai",     item({ id:"si_body_samurai",     cosmeticId:"body_samurai",     name:"Dread Marshal",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Shoes
-  storeItems.set("si_shoes_geta",       item({ id:"si_shoes_geta",       cosmeticId:"shoes_geta",       name:"Rocket Wheel",      rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_shoes_hover",      item({ id:"si_shoes_hover",      cosmeticId:"shoes_hover",      name:"Chrome Treads",     rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_shoes_geta",       item({ id:"si_shoes_geta",       cosmeticId:"shoes_geta",       name:"Rocket Wheel",      rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_shoes_hover",      item({ id:"si_shoes_hover",      cosmeticId:"shoes_hover",      name:"Chrome Treads",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   // Belts
-  storeItems.set("si_belt_holster",     item({ id:"si_belt_holster",     cosmeticId:"belt_holster",     name:"Twin Holster",     rarity:"Common",    currency:"CREDITS", price:150,  dropWeight:70, worth:25 }));
-  storeItems.set("si_belt_obi",         item({ id:"si_belt_obi",         cosmeticId:"belt_obi",         name:"Battle Sash",       rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
+  storeItems.set("si_belt_holster",     item({ id:"si_belt_holster",     cosmeticId:"belt_holster",     name:"Twin Holster",     rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
+  storeItems.set("si_belt_obi",         item({ id:"si_belt_obi",         cosmeticId:"belt_obi",         name:"Battle Sash",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   // Borders
-  storeItems.set("si_border_neon",      item({ id:"si_border_neon",      cosmeticId:"border_neon",      name:"Neon Circuit",     rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
+  storeItems.set("si_border_neon",      item({ id:"si_border_neon",      cosmeticId:"border_neon",      name:"Neon Circuit",     rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_border_celestial", item({ id:"si_border_celestial", cosmeticId:"border_celestial", name:"Frontier Ring",   rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Victory poses
-  storeItems.set("si_pose_meditate",    item({ id:"si_pose_meditate",    cosmeticId:"pose_meditate",    name:"Quiet Vigil",        rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
-  storeItems.set("si_pose_victory",     item({ id:"si_pose_victory",     cosmeticId:"pose_victory",     name:"Hero Landing",     rarity:"Epic",      currency:"CREDITS", price:1200, dropWeight:12, worth:300 }));
+  storeItems.set("si_pose_meditate",    item({ id:"si_pose_meditate",    cosmeticId:"pose_meditate",    name:"Quiet Vigil",        rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
+  storeItems.set("si_pose_victory",     item({ id:"si_pose_victory",     cosmeticId:"pose_victory",     name:"Hero Landing",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
   // Emotes
-  storeItems.set("si_emote_bow",        item({ id:"si_emote_bow",        cosmeticId:"emote_bow",        name:"Tip the Hat",      rarity:"Common",    currency:"CREDITS", price:150,  dropWeight:70, worth:25 }));
-  storeItems.set("si_emote_peace",      item({ id:"si_emote_peace",      cosmeticId:"emote_peace",      name:"Peace Sign",       rarity:"Rare",      currency:"CREDITS", price:600,  dropWeight:28, worth:120 }));
+  storeItems.set("si_emote_bow",        item({ id:"si_emote_bow",        cosmeticId:"emote_bow",        name:"Tip the Hat",      rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
+  storeItems.set("si_emote_peace",      item({ id:"si_emote_peace",      cosmeticId:"emote_peace",      name:"Peace Sign",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
 
   // Backgrounds (world vistas). The default bg_badlands is granted to everyone and NOT sold.
-  storeItems.set("si_bg_snowpass",      item({ id:"si_bg_snowpass",      cosmeticId:"bg_snowpass",      name:"Frostbite Pass",   rarity:"Rare",      currency:"CREDITS", price:800,  dropWeight:0, worth:160 }));
-  storeItems.set("si_bg_pineforest",    item({ id:"si_bg_pineforest",    cosmeticId:"bg_pineforest",    name:"Timberline Run",   rarity:"Rare",      currency:"CREDITS", price:800,  dropWeight:0, worth:160 }));
+  storeItems.set("si_bg_snowpass",      item({ id:"si_bg_snowpass",      cosmeticId:"bg_snowpass",      name:"Frostbite Pass",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:0, worth:160 }));
+  storeItems.set("si_bg_pineforest",    item({ id:"si_bg_pineforest",    cosmeticId:"bg_pineforest",    name:"Timberline Run",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:0, worth:160 }));
 
   boxConfigs.set("cadet_crate", {
-    id: "cadet_crate", name: "Greenhorn Crate", price: 250, currency: "CREDITS", kind: "box", enabled: true, worth: 250,
+    id: "cadet_crate", name: "Greenhorn Crate", price: 300, currency: "CREDITS", kind: "box", enabled: true, worth: 250,
     drops: [
       { cosmeticId: "bandana_knot",  item: "Knotted Bandana", rarity: "Common", weight: 70 },
       { cosmeticId: "head_visor",    item: "Neon Visor",      rarity: "Rare",   weight: 24 },
@@ -120,7 +121,7 @@ function seed() {
     ],
   });
   boxConfigs.set("vanguard_cache", {
-    id: "vanguard_cache", name: "Ranger Cache", price: 600, currency: "CREDITS", kind: "box", enabled: true, worth: 600,
+    id: "vanguard_cache", name: "Ranger Cache", price: 700, currency: "CREDITS", kind: "box", enabled: true, worth: 600,
     drops: [
       { cosmeticId: "tool_drill",    item: "Steam Drill",     rarity: "Rare",   weight: 38 },
       { cosmeticId: "shoes_glow",    item: "Glowstep Wheel",   rarity: "Epic",   weight: 14 },
@@ -220,6 +221,8 @@ export function applyAccountDefaults(u, { grandfather = false } = {}) {
   // Weekly win-rate bucket (resets when the ISO week changes) + the queue of
   // freshly-unlocked achievement ids the client shows as a match-end toast.
   if (!u.weekly || typeof u.weekly !== "object") u.weekly = { weekKey: null, matches: 0, wins: 0 };
+  if (!u.daily || typeof u.daily !== "object") u.daily = { day: null, quests: [], streak: { count: 0, lastDay: null } };
+  if (!u.weeklyLap || typeof u.weeklyLap !== "object") u.weeklyLap = { weekKey: null, bestLapSec: null, totalSec: null };
   if (!Array.isArray(u.pendingAchievements)) u.pendingAchievements = [];
   // Recently-ingested match ids (capped), used to make ingestMatchResult idempotent
   // so a duplicate/replayed match-result POST can't double-count XP/stats/history.
@@ -376,6 +379,16 @@ function seedTranslations() {
 
 export const memoryStore = {
   // ----- users -----
+  // Re-key an account's external identity — used to LINK a guest account to a
+  // CrazyGames user the first time that player logs into CG (their guest
+  // progress rides along instead of being orphaned).
+  async relinkGoogleId(userId, newGoogleId) {
+    const u = users.get(userId);
+    if (!u) return null;
+    u.googleId = newGoogleId;
+    return u;
+  },
+
   async findUserByGoogleId(googleId) {
     for (const u of users.values()) if (u.googleId === googleId) return u;
     return null;
@@ -806,7 +819,124 @@ export const memoryStore = {
   // detailed history row (capped at 10), update the weekly win-rate bucket, then
   // evaluate achievements and grant their avatar/border rewards. Idempotent per
   // achievement (unlockedAt guards re-grants). Guests (no userId) are skipped.
-  async ingestMatchResult({ matchId = null, winner = null, map = null, mode = null, participants = [] } = {}) {
+  // ---- Daily quests + login streak (SANDBOX GP) ----
+  // Lazily rolls today's 3 quests and advances the login streak the first time
+  // an account is touched each UTC day. Streak Seashells auto-credit once.
+  async _ensureDaily(u) {
+    if (!u.daily || typeof u.daily !== "object") u.daily = { day: null, quests: [], streak: { count: 0, lastDay: null } };
+    const day = utcDay();
+    if (u.daily.day !== day) {
+      const prevDay = u.daily.streak?.lastDay;
+      const count = prevDay === day - 1 ? (u.daily.streak.count || 0) + 1 : 1;
+      u.daily = {
+        day,
+        quests: questsForDay(day).map((q) => ({ id: q.id, progress: 0, claimed: false })),
+        streak: { count, lastDay: day, rewardedDay: null },
+      };
+      const pay = streakReward(count);
+      u.daily.streak.rewardedDay = day;
+      u.daily.streak.lastReward = pay;
+      await this._credit(u, pay, `streak:day${count}`);
+    }
+    return u.daily;
+  },
+
+  async _credit(u, amount, reason) {
+    if (!amount) return;
+    try { await this.adjustBalance(u.id, "CREDITS", amount, reason); } catch {}
+  },
+
+  async _applyQuestProgress(u, p) {
+    const daily = await this._ensureDaily(u);
+    const derived = {
+      races: 1,
+      wins: p.won ? 1 : 0,
+      podiums: (p.place != null && p.place <= 2) ? 1 : 0,
+      splashesCaused: p.splashesCaused || 0,
+      crumblesCaused: p.crumblesCaused || 0,
+      itemsUsed: p.itemsUsed || 0,
+      challenges: p.challenges || 0,
+      sTiers: p.sTiers || 0,
+    };
+    for (const q of daily.quests) {
+      const def = QUEST_POOL.find((d) => d.id === q.id);
+      if (!def || q.claimed) continue;
+      q.progress = Math.min(def.goal, q.progress + (derived[def.stat] || 0));
+    }
+  },
+
+  async getDaily(userId) {
+    const u = users.get(userId);
+    if (!u) return null;
+    const daily = await this._ensureDaily(u);
+    return {
+      day: daily.day,
+      streak: { count: daily.streak.count, todayReward: daily.streak.lastReward ?? streakReward(daily.streak.count) },
+      quests: daily.quests.map((q) => {
+        const def = QUEST_POOL.find((d) => d.id === q.id) || {};
+        return { id: q.id, label: def.label, goal: def.goal, reward: def.reward, progress: q.progress, claimed: q.claimed };
+      }),
+      balance: u.balances?.CREDITS ?? 0,
+    };
+  },
+
+  // Rank ladder snapshot: current level + the next unlock, for the results tease.
+  async getProgress(userId) {
+    const u = users.get(userId);
+    if (!u) return null;
+    const xp = u.xp || 0;
+    const level = levelForXp(xp);
+    // find the next level that actually grants/unlocks something worth teasing
+    let next = null;
+    for (let lvl = level + 1; lvl <= level + 20; lvl++) {
+      const row = LEVEL_UNLOCKS[lvl];
+      if (row && (row.grants?.length || row.slots?.length || row.perks?.length)) {
+        next = { level: lvl, note: row.note || "", grants: row.grants?.length || 0, xpNeeded: Math.max(0, xpForLevel(lvl) - xp) };
+        break;
+      }
+    }
+    if (!next) next = { level: level + 1, note: "Level up!", grants: 0, xpNeeded: Math.max(0, xpForLevel(level + 1) - xp) };
+    return { xp, level, next };
+  },
+
+  async claimDailyQuest(userId, questId) {
+    const u = users.get(userId);
+    if (!u) return { error: "No such account." };
+    const daily = await this._ensureDaily(u);
+    const q = daily.quests.find((x) => x.id === questId);
+    const def = QUEST_POOL.find((d) => d.id === questId);
+    if (!q || !def) return { error: "No such quest today." };
+    if (q.claimed) return { error: "Already claimed." };
+    if (q.progress < def.goal) return { error: "Not complete yet." };
+    q.claimed = true;
+    await this._credit(u, def.reward, `quest:${questId}`);
+    return { ok: true, reward: def.reward, balance: u.balances?.CREDITS ?? 0 };
+  },
+
+  // ---- Weekly best-lap leaderboard (time-trial mode) ----
+  _recordTimeTrial(u, p) {
+    if (!u.weeklyLap || typeof u.weeklyLap !== "object") u.weeklyLap = { weekKey: null, bestLapSec: null, totalSec: null };
+    const wk = weekKey();
+    if (u.weeklyLap.weekKey !== wk) u.weeklyLap = { weekKey: wk, bestLapSec: null, totalSec: null };
+    if (p.bestLapSec > 0 && (u.weeklyLap.bestLapSec == null || p.bestLapSec < u.weeklyLap.bestLapSec)) {
+      u.weeklyLap.bestLapSec = p.bestLapSec;
+      u.weeklyLap.totalSec = p.totalSec ?? u.weeklyLap.totalSec;
+    }
+  },
+
+  async weeklyBestLaps(limit = 10) {
+    const wk = weekKey();
+    const rows = [];
+    for (const u of users.values()) {
+      if (u.weeklyLap?.weekKey === wk && u.weeklyLap.bestLapSec > 0) {
+        rows.push({ userId: u.id, name: u.name, bestLapSec: u.weeklyLap.bestLapSec, totalSec: u.weeklyLap.totalSec });
+      }
+    }
+    rows.sort((a, b) => a.bestLapSec - b.bestLapSec);
+    return { weekKey: wk, rows: rows.slice(0, limit) };
+  },
+
+  async ingestMatchResult({ matchId = null, winner = null, map = null, mode = null, laps = 3, participants = [] } = {}) {
     const out = [];
     const wk = weekKey();
     for (const p of participants) {
@@ -824,17 +954,34 @@ export const memoryStore = {
         if (u.processedMatches.length > 100) u.processedMatches = u.processedMatches.slice(-100);
       }
 
-      // XP + Credits (same rule the match-end UI mirrors: 50 base + 75 win, +10cr win).
-      // The premium ("Gold Trail") pass multiplies BOTH while it's active — the
-      // match-end UI mirrors this same premium multiplier so the shown reward matches.
-      const baseXp = 50 + (p.won ? 75 : 0);
-      const baseCredits = p.won ? 10 : 0;
+      // ---- Rewards (the match-end UI mirrors these exact rules) ----
+      // RACE: place-based Seashells (1st 12 / 2nd 8 / 3rd 5 / 4th+ 3) + 50 XP
+      // base +75 on a win. Both scale with lap count (laps/3, capped at 1) so a
+      // 1-lap room pays a third — short-race farming earns no more per minute
+      // than honest racing. TIME TRIAL: flat 2 Seashells + 30 XP; the weekly
+      // lap board is the real prize, and a solo mode must never out-earn the
+      // arena. Premium ("Gold Trail") multiplies both, mirrored in the UI.
+      const lapsFactor = Math.min(1, Math.max(1, Number(laps) || 3) / 3);
+      const PLACE_PAY = [12, 8, 5, 3];
+      let baseXp, baseCredits;
+      if (mode === "timetrial") {
+        baseXp = 30;
+        baseCredits = 2;
+      } else {
+        baseXp = Math.round((50 + (p.won ? 75 : 0)) * lapsFactor);
+        baseCredits = Math.round((PLACE_PAY[Math.min((p.place || 4) - 1, 3)] || 3) * lapsFactor);
+      }
       const premium = this.isPremium(u);
       const xp = premium ? Math.round(baseXp * PREMIUM_BONUS.xpMult) : baseXp;
       const credits = premium ? Math.round(baseCredits * PREMIUM_BONUS.creditMult) : baseCredits;
       let prog = null, balance;
       try { prog = await this.addXp(p.userId, xp, `match:${matchId || "?"}`); } catch {}
       try { balance = await this.adjustBalance(p.userId, "CREDITS", credits, `match:${matchId || "?"}`); } catch {}
+
+      // SANDBOX GP: daily-quest progress (arena races only — a solo practice
+      // mode must not tick "win/podium/race" quests) + weekly best-lap board
+      if (mode !== "timetrial") { try { await this._applyQuestProgress(u, p); } catch {} }
+      if (mode === "timetrial") { try { this._recordTimeTrial(u, p); } catch {} }
 
       // Lifetime stats
       const s = u.stats;

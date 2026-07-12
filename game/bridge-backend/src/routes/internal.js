@@ -26,9 +26,9 @@ internalRouter.get("/match-profile/:userId", async (req, res) => {
 // weekly win-rate bucket, and grants any newly-unlocked achievement rewards —
 // all server-to-server so clients can never grant themselves progression.
 internalRouter.post("/match-result", async (req, res) => {
-  const { matchId, winner, map, mode, participants } = req.body || {};
+  const { matchId, winner, map, mode, laps, participants } = req.body || {};
   if (!Array.isArray(participants)) return res.status(400).json({ error: "participants[] required." });
-  const awarded = await db.ingestMatchResult({ matchId, winner, map, mode, participants });
+  const awarded = await db.ingestMatchResult({ matchId, winner, map, mode, laps, participants });
   res.json({ matchId, winner, awarded });
 });
 
