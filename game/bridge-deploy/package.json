@@ -1,0 +1,14 @@
+{
+  "name": "bridge-deploy",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Combined single-port deploy server for BRIDGE (backend + game server + client).",
+  "scripts": {
+    "build": "npm --prefix ../bridge-backend install && npm --prefix ../bridge-gameserver install && npm --prefix ../bridge-client install && npm --prefix ../bridge-client run build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
