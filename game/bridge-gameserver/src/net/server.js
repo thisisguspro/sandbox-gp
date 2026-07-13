@@ -120,7 +120,7 @@ io.on("connection", (socket) => {
     // Even if the backend is unreachable, we still know who they are from the token.
     return {
       account: profile
-        ? { userId: session.userId, loadout: profile.loadout, unlockedPerks: profile.unlockedPerks, eventFlags: profile.eventFlags || [], silenced: profile.silenced, banned: profile.banned, streamerMode: !!profile.streamerMode }
+        ? { userId: session.userId, loadout: profile.loadout, selectedAvatar: profile.selectedAvatar, selectedBorder: profile.selectedBorder, unlockedPerks: profile.unlockedPerks, equippedPerks: profile.equippedPerks || [], eventFlags: profile.eventFlags || [], silenced: profile.silenced, banned: profile.banned, streamerMode: !!profile.streamerMode }
         : { userId: session.userId, loadout: {}, unlockedPerks: [], eventFlags: [] },
       name: (profile && profile.name) || session.name || fallbackName || "Crew",
       banned: profile ? profile.banned : false,
@@ -163,9 +163,15 @@ io.on("connection", (socket) => {
     if (socket.id !== room.hostSocketId) return socket.emit("error_msg", "Only the host can change settings.");
     if (room.engine.phase !== PHASE.LOBBY) return socket.emit("error_msg", "Can't change settings after the match starts.");
     const incoming = { ...(config || {}) };
-    delete incoming.mode; // race is the only mode; modes may return with events later
+    // MODES ARE REAL NOW. Changing the mode rebuilds the engine's rules, arena,
+    // player cap and spawns — same as changing the circuit does.
     // Merge freely (no bounds, by design) over the engine's current config.
     Object.assign(room.engine.config, incoming);
+    // Changing the circuit means a NEW TRACK — the engine builds its track once
+    // at construction, so merging a trackId into config alone would leave
+    // everyone racing the old map while the lobby claimed otherwise.
+    if (incoming.trackId) room.engine.setTrack(incoming.trackId);
+    if (incoming.mode) room.engine.setMode(incoming.mode);
     room.isPublic = !!room.engine.config.isPublic;
     broadcast(room);
   });
@@ -277,7 +283,7 @@ io.on("connection", (socket) => {
   socket.on("emote", ({ roomId, emoteId }) => act(roomId, (r, pid) => r.engine.setEmote(pid, emoteId)));
   // Driving input: high-frequency, quiet (a reconnecting socket flushes stale
   // inputs before its rejoin lands — those must never toast errors).
-  socket.on("race_input", ({ roomId, throttle, steer } = {}) => act(roomId, (r, pid) => r.engine.setInput(pid, { throttle, steer }), { quiet: true }));
+  socket.on("race_input", ({ roomId, throttle, steer, keys } = {}) => act(roomId, (r, pid) => r.engine.setInput(pid, { throttle, steer, keys }), { quiet: true }));
   // The shovel scoop: respawn on the centerline at a dead stop (soft penalty).
   socket.on("race_reset", ({ roomId } = {}) => act(roomId, (r, pid) => r.engine.requestReset(pid), { quiet: true }));
   socket.on("race_use", ({ roomId } = {}) => act(roomId, (r, pid) => r.engine.useItem(pid), { quiet: true }));

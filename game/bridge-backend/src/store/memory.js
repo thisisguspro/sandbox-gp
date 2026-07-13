@@ -5,13 +5,14 @@
 import { DEFAULT_CURRENCY, config, CONSUMABLES, PREMIUM_BONUS, LOYALTY_MILESTONES, LOYALTY_INACTIVITY_MS, AD_REWARD } from "../config/index.js";
 import {
   COSMETICS, SLOTS, levelForXp, xpForLevel, unlockedAt, defaultLoadout, LEVEL_UNLOCKS, COVERED_BY_BODY_SLOTS,
+  RACING_PERKS, MAX_EQUIPPED_PERKS, isCraftable, CRAFT_COST, scrapValue,
 } from "../config/cosmetics.js";
 import { DEFAULT_SETTINGS, defaultWheels, sanitizeSettings, WHEEL_SLOTS, DEFAULT_EMOTES } from "../config/settings.js";
 import { normalizeReward, EVENT_FLAGS } from "../config/events.js";
 import { questsForDay, QUEST_POOL, streakReward, utcDay } from "../config/quests.js";
 import {
   ACHIEVEMENTS, AVATARS, BORDERS, DEFAULT_AVATAR, DEFAULT_BORDER,
-  evaluateAchievements, progressFor, weekKey,
+  evaluateAchievements, progressFor, weekKey, TRACKED_STATS,
 } from "../config/achievements.js";
 import {
   STRINGS, LOCALE_CODES, TRANSLATABLE_LOCALES, DEFAULT_LOCALE, isLocale,
@@ -37,6 +38,13 @@ const translations = new Map();
 const NEWS_SLOTS = 6;             // fixed number of player-facing news tiles
 const NEWS_BODY_MAX = 200 * 1024; // cap each HTML body so the JSONB snapshot stays cheap
 const txLog = [];               // transaction audit trail
+// WEEKLY time-attack boards: `${weekKey}:${trackId}` -> Map<userId, entry>.
+// You get unlimited attempts; only your BEST time that week is kept. The board
+// resets every Monday, and the top 3% on each map are paid when it does — so a
+// fast lap is worth something for a week, not forever.
+const lapBoard = {};
+const paidWeeks = new Set();     // `${weekKey}:${trackId}` — payouts happen once
+let lastSettledWeek = null;      // the week we last saw; when it changes, settle the old one
 const adminActions = [];        // admin audit trail: cosmetic grant/remove/reverse, currency adjustments, moderation (ban/silence)
 
 let nextId = 1;
@@ -54,10 +62,34 @@ function seed() {
   storeItems.set("si_visor",     item({ id:"si_visor",     cosmeticId:"head_visor",   name:"Neon Visor",      rarity:"Rare",   currency:"CREDITS", price:700, dropWeight:24, worth:120 }));
   storeItems.set("si_drill",     item({ id:"si_drill",     cosmeticId:"tool_drill",   name:"Steam Drill",    rarity:"Rare",   currency:"CREDITS", price:700, dropWeight:30, worth:110 }));
   storeItems.set("si_glow",      item({ id:"si_glow",      cosmeticId:"shoes_glow",   name:"Glowstep Wheel",  rarity:"Epic",   currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  // PREMIUM (cash-adjacent) direct items — priceCents drives Stripe. $1 test items.
-  storeItems.set("si_halo",      item({ id:"si_halo",      cosmeticId:"head_halo",    name:"Spirit Halo",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2,  worth:900 }));
-  storeItems.set("si_ronin",     item({ id:"si_ronin",     cosmeticId:"body_ronin",   name:"Lone Drifter", rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:3,  worth:850 }));
-  storeItems.set("si_aurora",    item({ id:"si_aurora",    cosmeticId:"border_aurora",name:"Sunset Frame",    rarity:"Epic",      currency:"PREMIUM", price:1, priceCents:100, dropWeight:10, worth:400 }));
+  // PREMIUM direct items. NOTE: nine legacy $1 rows used to sell CHEST DROPS for
+  // real money — an item that's craftable with sea glass AND has a "just pay us"
+  // button is a paywall shortcut straight past the crafting economy. They're
+  // gone. Anything sold here must be source:"premium", i.e. uncraftable.
+  // ---- SAND DOLLAR STORE: the 20 premium cosmetics. Priced by rarity, and
+  // deliberately NOT craftable — paying money for something a rival can melt
+  // down with sea glass would be a bad joke.
+  storeItems.set("si_head_captain", item({ id:"si_head_captain", cosmeticId:"head_captain", name:"Captain's Cap", rarity:"Rare", currency:"PREMIUM", price:2, priceCents:200, dropWeight:0, worth:250 }));
+  storeItems.set("si_head_sharkfin", item({ id:"si_head_sharkfin", cosmeticId:"head_sharkfin", name:"Shark Fin Helm", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_head_flowercrown", item({ id:"si_head_flowercrown", cosmeticId:"head_flowercrown", name:"Flower Crown", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_head_shellcrown", item({ id:"si_head_shellcrown", cosmeticId:"head_shellcrown", name:"Coral Crown", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_head_helmetwing", item({ id:"si_head_helmetwing", cosmeticId:"head_helmetwing", name:"Winged Helm", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_head_horns", item({ id:"si_head_horns", cosmeticId:"head_horns", name:"Reef Horns", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_breather_bubble", item({ id:"si_breather_bubble", cosmeticId:"breather_bubble", name:"Bubble Helm", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_breather_abyss", item({ id:"si_breather_abyss", cosmeticId:"breather_abyss", name:"Abyss Rebreather", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_bandana_aurora", item({ id:"si_bandana_aurora", cosmeticId:"bandana_aurora", name:"Aurora Silk", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_bandana_champion", item({ id:"si_bandana_champion", cosmeticId:"bandana_champion", name:"Champion's Sash", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_tank_twin", item({ id:"si_tank_twin", cosmeticId:"tank_twin", name:"Twin Ring Floaty", rarity:"Rare", currency:"PREMIUM", price:2, priceCents:200, dropWeight:0, worth:250 }));
+  storeItems.set("si_tank_thunder", item({ id:"si_tank_thunder", cosmeticId:"tank_thunder", name:"Thunder Wave Floaty", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_tank_flamingo", item({ id:"si_tank_flamingo", cosmeticId:"tank_flamingo", name:"Flamingo Floaty", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_tool_pistols", item({ id:"si_tool_pistols", cosmeticId:"tool_pistols", name:"Twin Water Pistols", rarity:"Rare", currency:"PREMIUM", price:2, priceCents:200, dropWeight:0, worth:250 }));
+  storeItems.set("si_tool_kite", item({ id:"si_tool_kite", cosmeticId:"tool_kite", name:"Stunt Kite", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_tool_buoy", item({ id:"si_tool_buoy", cosmeticId:"tool_buoy", name:"Lifeguard Buoy", rarity:"Epic", currency:"PREMIUM", price:4, priceCents:400, dropWeight:0, worth:500 }));
+  storeItems.set("si_tool_trident", item({ id:"si_tool_trident", cosmeticId:"tool_trident", name:"Golden Trident", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_belt_chain", item({ id:"si_belt_chain", cosmeticId:"belt_chain", name:"Chrome Chain", rarity:"Rare", currency:"PREMIUM", price:2, priceCents:200, dropWeight:0, worth:250 }));
+  storeItems.set("si_belt_anchor", item({ id:"si_belt_anchor", cosmeticId:"belt_anchor", name:"Anchor Rig", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+  storeItems.set("si_shoes_cleats", item({ id:"si_shoes_cleats", cosmeticId:"shoes_cleats", name:"Racing Slicks", rarity:"Legendary", currency:"PREMIUM", price:8, priceCents:800, dropWeight:0, worth:1000 }));
+
   // Utility product (NOT a cosmetic): one paid display-name change. priceCents
   // drives Stripe like any cash item; fulfillment grants a name-change credit
   // instead of a cosmetic. dropWeight:0 so it never appears in any loot box.
@@ -68,16 +100,13 @@ function seed() {
   // Breathers
   storeItems.set("si_breather_koi",     item({ id:"si_breather_koi",     cosmeticId:"breather_koi",     name:"Catfish Filter",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_breather_kitsune", item({ id:"si_breather_kitsune", cosmeticId:"breather_kitsune", name:"Coyote Mask",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  storeItems.set("si_breather_oni",     item({ id:"si_breather_oni",     cosmeticId:"breather_oni",     name:"Devil's Visage",       rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // O2 tanks
   storeItems.set("si_tank_jet",         item({ id:"si_tank_jet",         cosmeticId:"tank_jet",         name:"Piston Cell",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_tank_sakura",      item({ id:"si_tank_sakura",      cosmeticId:"tank_sakura",      name:"Desert Bloom Cell",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  storeItems.set("si_tank_dragon",      item({ id:"si_tank_dragon",      cosmeticId:"tank_dragon",      name:"Thunder Core",      rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Weapons
   storeItems.set("si_tool_bokken",      item({ id:"si_tool_bokken",      cosmeticId:"tool_bokken",      name:"Training Cudgel",  rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
   storeItems.set("si_tool_fan",         item({ id:"si_tool_fan",         cosmeticId:"tool_fan",         name:"War Fan",          rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_tool_katana",      item({ id:"si_tool_katana",      cosmeticId:"tool_katana",      name:"Cavalry Saber",    rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  storeItems.set("si_tool_naginata",    item({ id:"si_tool_naginata",    cosmeticId:"tool_naginata",    name:"Marshal's Pike",    rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Bandanas
   storeItems.set("si_band_hachimaki",   item({ id:"si_band_hachimaki",   cosmeticId:"bandana_hachimaki",name:"Dust Wrap",        rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
   storeItems.set("si_band_flame",       item({ id:"si_band_flame",       cosmeticId:"bandana_flame",    name:"Flame Wrap",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
@@ -86,11 +115,9 @@ function seed() {
   storeItems.set("si_head_goggles",     item({ id:"si_head_goggles",     cosmeticId:"head_goggles",     name:"Dust Goggles",    rarity:"Common",    currency:"CREDITS", price:500,  dropWeight:70, worth:25 }));
   storeItems.set("si_head_foxears",     item({ id:"si_head_foxears",     cosmeticId:"head_foxears",     name:"Coyote Ears",         rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_head_kabuto",      item({ id:"si_head_kabuto",      cosmeticId:"head_kabuto",      name:"Bandit Helm",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  storeItems.set("si_head_crown",       item({ id:"si_head_crown",       cosmeticId:"head_crown",       name:"Outlaw Crown",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Bodies
   storeItems.set("si_body_pilotsuit",   item({ id:"si_body_pilotsuit",   cosmeticId:"body_pilotsuit",   name:"Gunslinger Rig",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_body_kimono",      item({ id:"si_body_kimono",      cosmeticId:"body_kimono",      name:"Star Poncho",      rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
-  storeItems.set("si_body_samurai",     item({ id:"si_body_samurai",     cosmeticId:"body_samurai",     name:"Dread Marshal",     rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Shoes
   storeItems.set("si_shoes_geta",       item({ id:"si_shoes_geta",       cosmeticId:"shoes_geta",       name:"Rocket Wheel",      rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_shoes_hover",      item({ id:"si_shoes_hover",      cosmeticId:"shoes_hover",      name:"Chrome Treads",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
@@ -99,7 +126,6 @@ function seed() {
   storeItems.set("si_belt_obi",         item({ id:"si_belt_obi",         cosmeticId:"belt_obi",         name:"Battle Sash",       rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   // Borders
   storeItems.set("si_border_neon",      item({ id:"si_border_neon",      cosmeticId:"border_neon",      name:"Neon Circuit",     rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
-  storeItems.set("si_border_celestial", item({ id:"si_border_celestial", cosmeticId:"border_celestial", name:"Frontier Ring",   rarity:"Legendary", currency:"PREMIUM", price:1, priceCents:100, dropWeight:2, worth:900 }));
   // Victory poses
   storeItems.set("si_pose_meditate",    item({ id:"si_pose_meditate",    cosmeticId:"pose_meditate",    name:"Quiet Vigil",        rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:28, worth:120 }));
   storeItems.set("si_pose_victory",     item({ id:"si_pose_victory",     cosmeticId:"pose_victory",     name:"Hero Landing",     rarity:"Epic",      currency:"CREDITS", price:900, dropWeight:12, worth:300 }));
@@ -111,32 +137,41 @@ function seed() {
   storeItems.set("si_bg_snowpass",      item({ id:"si_bg_snowpass",      cosmeticId:"bg_snowpass",      name:"Frostbite Pass",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:0, worth:160 }));
   storeItems.set("si_bg_pineforest",    item({ id:"si_bg_pineforest",    cosmeticId:"bg_pineforest",    name:"Timberline Run",   rarity:"Rare",      currency:"CREDITS", price:700,  dropWeight:0, worth:160 }));
 
+  // ---- LOOT BOXES ----------------------------------------------------------
+  // Built FROM the cosmetic catalogue, not hand-listed. The old tables named 8
+  // items between them, so 71 of the 79 loot-box cosmetics could never drop —
+  // and an item that can never drop can never be scrapped into the sea glass
+  // you'd need to craft it. The economy had no faucet.
+  //
+  // Three tiers, each drawing from a rarity band. Names come from COSMETICS, so
+  // a reskin can never leave a stale label behind in a drop table again.
+  const RARITY_WEIGHT = { Common: 70, Rare: 26, Epic: 9, Legendary: 2 };
+  const dropsFor = (rarities) =>
+    Object.values(COSMETICS)
+      .filter((c) => c.source === "box" && rarities.includes(c.rarity))
+      .map((c) => ({
+        cosmeticId: c.id,
+        item: c.name,                 // live name — never a stale copy
+        rarity: c.rarity,
+        weight: RARITY_WEIGHT[c.rarity] || 10,
+      }));
+
   boxConfigs.set("cadet_crate", {
-    id: "cadet_crate", name: "Greenhorn Crate", price: 300, currency: "CREDITS", kind: "box", enabled: true, worth: 250,
-    drops: [
-      { cosmeticId: "bandana_knot",  item: "Knotted Bandana", rarity: "Common", weight: 70 },
-      { cosmeticId: "head_visor",    item: "Neon Visor",      rarity: "Rare",   weight: 24 },
-      { cosmeticId: "body_mecha",    item: "Iron Frame",     rarity: "Epic",   weight: 5 },
-      { cosmeticId: "head_halo",     item: "Spirit Halo",     rarity: "Legendary", weight: 1 },
-    ],
+    id: "cadet_crate", name: "Beach Bucket", price: 300, currency: "CREDITS", kind: "box", enabled: true, worth: 250,
+    drops: dropsFor(["Common", "Rare"]),
   });
   boxConfigs.set("vanguard_cache", {
-    id: "vanguard_cache", name: "Ranger Cache", price: 700, currency: "CREDITS", kind: "box", enabled: true, worth: 600,
-    drops: [
-      { cosmeticId: "tool_drill",    item: "Steam Drill",     rarity: "Rare",   weight: 38 },
-      { cosmeticId: "shoes_glow",    item: "Glowstep Wheel",   rarity: "Epic",   weight: 14 },
-      { cosmeticId: "tank_finned",   item: "Finned Battery",      rarity: "Rare",  weight: 45 },
-      { cosmeticId: "body_ronin",    item: "Lone Drifter",  rarity: "Legendary", weight: 3 },
-    ],
+    id: "vanguard_cache", name: "Treasure Chest", price: 700, currency: "CREDITS", kind: "box", enabled: true, worth: 600,
+    drops: dropsFor(["Common", "Rare", "Epic"]),
   });
+  // The Golden Clam used to cost real money. A CASH LOOT BOX is (a) against the
+  // rule that Shells buy only the premium cosmetics, and (b) the exact mechanic
+  // that gets games age-gated or pulled outright in the EU and UK. It's now the
+  // top-tier Sea Glass chest — the one you grind for. Shells buy premium
+  // cosmetics, where you see precisely what you're getting before you pay.
   boxConfigs.set("prism_vault", {
-    id: "prism_vault", name: "Gold Vault", price: 5, currency: "PREMIUM", kind: "box", enabled: true, worth: 5, priceCents: 300,
-    drops: [
-      { cosmeticId: "border_aurora", item: "Sunset Frame",   rarity: "Epic",      weight: 50 },
-      { cosmeticId: "head_halo",     item: "Spirit Halo",     rarity: "Legendary", weight: 20 },
-      { cosmeticId: "body_ronin",    item: "Lone Drifter", rarity: "Legendary", weight: 15 },
-      { cosmeticId: "pose_backflip", item: "High-Noon Backflip", rarity: "Rare",      weight: 15 },
-    ],
+    id: "prism_vault", name: "Golden Clam", price: 2000, currency: "CREDITS", kind: "box", enabled: true, worth: 1800,
+    drops: dropsFor(["Rare", "Epic", "Legendary"]),
   });
   codes.set("BRIDGE-LAUNCH", { reward: { cosmeticId: "tool_chicken", item: "Rubber Chicken", rarity: "Epic" } });
   codes.set("WELCOME-500", { currency: "CREDITS", amount: 500 });
@@ -194,13 +229,29 @@ export function applyAccountDefaults(u, { grandfather = false } = {}) {
   if (!u.stats || typeof u.stats !== "object") {
     u.stats = {
       matchesPlayed: 0, wins: 0, losses: 0,
-      matchesAsCrew: 0, matchesAsImpostor: 0,
-      winsAsCrew: 0, winsAsImpostor: 0,
-      tasksCompleted: 0, sabotages: 0, impostorKills: 0, ejections: 0,
       winStreak: 0, bestWinStreak: 0,
+      // ---- racing (SANDBOX GP) ----
+      podiums: 0, bestPlace: null, bestLapSec: null,
+      splashesCaused: 0, crumblesCaused: 0, itemsUsed: 0,
+      challengesCompleted: 0, sTiers: 0, timeTrials: 0, totalRaceSec: 0,
     };
   }
   if (!Array.isArray(u.matchHistory)) u.matchHistory = []; // recent matches (detailed entries added by a later feature)
+  for (const k of ["podiums", "splashesCaused", "crumblesCaused", "itemsUsed", "challengesCompleted", "sTiers", "timeTrials", "totalRaceSec"]) {
+    if (typeof u.stats[k] !== "number") u.stats[k] = 0;
+  }
+  if (!("bestPlace" in u.stats)) u.stats.bestPlace = null;
+  // Seed EVERY stat an achievement reads. A missing key isn't 0 — it's
+  // `undefined`, and a progress bar that divides by it renders NaN.
+  for (const k of TRACKED_STATS) {
+    if (k === "bestPlace" || k === "bestLapSec") continue;   // legitimately null
+    if (typeof u.stats[k] !== "number") u.stats[k] = 0;
+  }
+  // cosmeticsOwned is derived, not accumulated — recompute it, so it's right
+  // even for accounts that predate the achievement.
+  u.stats.cosmeticsOwned = u.cosmetics?.size ?? 0;
+  if (!Array.isArray(u.equippedPerks)) u.equippedPerks = [];
+  if (!("bestLapSec" in u.stats)) u.stats.bestLapSec = null;
   if (typeof u.karma !== "number") u.karma = 0;
   if (!Array.isArray(u.karmaHistory)) u.karmaHistory = [];       // [{ from, matchId, at }]
   if (typeof u.matchesSinceKarma !== "number") u.matchesSinceKarma = 0;
@@ -210,6 +261,14 @@ export function applyAccountDefaults(u, { grandfather = false } = {}) {
   if (!u.achievements || typeof u.achievements !== "object") u.achievements = {}; // achId -> { unlockedAt, progress }
   if (!Array.isArray(u.ownedAvatars)) u.ownedAvatars = [];
   if (!Array.isArray(u.ownedBorders)) u.ownedBorders = [];
+  // MIGRATION: sea glass used to be a SEPARATE balance from the in-game currency
+  // — two earnable currencies doing the same job. They're one now. Fold any
+  // stranded glass into the main wallet and drop the old field, so nobody loses
+  // what they'd already scrapped for.
+  if (u.balances && u.balances.GLASS != null) {
+    u.balances.CREDITS = (u.balances.CREDITS ?? 0) + u.balances.GLASS;
+    delete u.balances.GLASS;
+  }
   if (u.selectedAvatar === undefined) u.selectedAvatar = null;
   if (u.selectedBorder === undefined) u.selectedBorder = null;
   // Seed the starter avatar/border so every account (including ones created before
@@ -402,7 +461,7 @@ export const memoryStore = {
     const isSuper = !!email && emailVerified && email.toLowerCase() === config.superadminEmail.toLowerCase();
     const user = {
       id, googleId, name, email, avatar, password,
-      balances: { CREDITS: 1000, PREMIUM: 0 }, // starter Credits
+      balances: { CREDITS: 500, PREMIUM: 0 },   // Sea Glass (in-game) · Shells (cash)
       xp: 0,
       level: 1,
       adminRole: isSuper ? "superadmin" : null, // null | "admin" | "superadmin"
@@ -496,6 +555,57 @@ export const memoryStore = {
     const u = users.get(userId);
     return u ? (u.balances[currency] ?? 0) : 0;
   },
+  // ---- SEA GLASS: scrap and craft --------------------------------------------
+  // You may only scrap/craft LOOT BOX cosmetics. Level unlocks, loyalty rewards
+  // and the starter kit are a record of what you DID — minting or melting those
+  // with currency would make them meaningless. Enforced here, server-side, so a
+  // hacked client can't route around it.
+  async scrapCosmetic(userId, cosmeticId) {
+    const u = users.get(String(userId));
+    if (!u) throw new Error("No such racer.");
+    const item = COSMETICS[cosmeticId];
+    if (!item) throw new Error("Unknown item.");
+    if (!isCraftable(item)) throw new Error(`${item.name} was earned, not found — it can't be scrapped.`);
+    if (!u.cosmetics?.has(cosmeticId)) throw new Error("You don't own that.");
+
+    // never let someone scrap the thing they're currently wearing
+    for (const [slot, worn] of Object.entries(u.loadout || {})) {
+      if (worn === cosmeticId) throw new Error(`Take off your ${item.name} first.`);
+    }
+    u.cosmetics.delete(cosmeticId);
+    delete u.cosmeticSources?.[cosmeticId];
+    const glass = scrapValue(item);
+    u.stats = u.stats || {};
+    u.stats.itemsScrapped = (u.stats.itemsScrapped || 0) + 1;
+    u.stats.cosmeticsOwned = u.cosmetics.size;
+    evaluateAchievements(u);
+    const balance = await this.adjustBalance(userId, "CREDITS", glass, `scrap:${cosmeticId}`);
+    return { scrapped: cosmeticId, glass, balance };
+  },
+
+  async craftCosmetic(userId, cosmeticId) {
+    const u = users.get(String(userId));
+    if (!u) throw new Error("No such racer.");
+    const item = COSMETICS[cosmeticId];
+    if (!item) throw new Error("Unknown item.");
+    if (!isCraftable(item)) throw new Error(`${item.name} has to be earned — it can't be crafted.`);
+    if (u.cosmetics?.has(cosmeticId)) throw new Error("You already own that.");
+
+    const cost = CRAFT_COST[item.rarity] || 40;
+    const have = u.balances?.CREDITS ?? 0;
+    if (have < cost) throw new Error(`Need ${cost} sea glass — you have ${have}.`);
+
+    const balance = await this.adjustBalance(userId, "CREDITS", -cost, `craft:${cosmeticId}`);
+    u.cosmetics.add(cosmeticId);
+    u.stats = u.stats || {};
+    u.stats.itemsCrafted = (u.stats.itemsCrafted || 0) + 1;
+    u.stats.cosmeticsOwned = u.cosmetics.size;
+    evaluateAchievements(u);
+    u.cosmeticSources = u.cosmeticSources || {};
+    u.cosmeticSources[cosmeticId] = [...new Set([...(u.cosmeticSources[cosmeticId] || []), "craft"])];
+    return { crafted: cosmeticId, spent: cost, balance };
+  },
+
   async adjustBalance(userId, currency, delta, reason) {
     const u = users.get(userId);
     if (!u) throw new Error("user not found");
@@ -601,6 +711,9 @@ export const memoryStore = {
     if (!COSMETICS[cosmeticId]) throw new Error("unknown cosmetic");
     const already = u.cosmetics.has(cosmeticId);
     u.cosmetics.add(cosmeticId);
+    u.stats = u.stats || {};
+    u.stats.cosmeticsOwned = u.cosmetics.size;
+    evaluateAchievements(u);
     // Track WHERE this grant came from so a later refund only strips a cosmetic
     // still solely attributable to the refunded purchase.
     addCosmeticSource(u, cosmeticId, source);
@@ -760,7 +873,22 @@ export const memoryStore = {
     return out;
   },
 
-  async getProfile(userId) {
+    // goal #15: equip up to two racing perks; only unlocked ones count
+  async setEquippedPerks(userId, list) {
+    const u = users.get(String(userId));
+    if (!u) throw new Error("No such user.");
+    const wanted = [...new Set((list || []).map(String))].slice(0, MAX_EQUIPPED_PERKS);
+    const level = levelForXp(u.xp).level ?? levelForXp(u.xp);
+    for (const key of wanted) {
+      const def = RACING_PERKS[key];
+      if (!def) throw new Error(`Unknown perk: ${key}`);
+      if ((level.level ?? level) < def.unlockLevel) throw new Error(`${def.name} unlocks at level ${def.unlockLevel}.`);
+    }
+    u.equippedPerks = wanted;
+    return [...wanted];
+  },
+
+async getProfile(userId) {
     const u = users.get(userId);
     if (!u) return null;
     const unlocked = unlockedAt(u.level);
@@ -788,10 +916,12 @@ export const memoryStore = {
       matchHistory: u.matchHistory.slice(0, 10),
       achievements: ACHIEVEMENTS.map((a) => ({
         id: a.id, name: a.name, desc: a.desc, glyph: a.glyph,
+        cat: a.cat,                      // the profile groups by this
         threshold: a.threshold, reward: a.reward,
         unlockedAt: u.achievements[a.id]?.unlockedAt || null,
         progress: progressFor(u, a),
       })),
+      equippedPerks: [...(u.equippedPerks || [])],
       ownedAvatars: [...u.ownedAvatars],
       ownedBorders: [...u.ownedBorders],
       selectedAvatar: u.selectedAvatar,
@@ -939,6 +1069,13 @@ export const memoryStore = {
   async ingestMatchResult({ matchId = null, winner = null, map = null, mode = null, laps = 3, participants = [] } = {}) {
     const out = [];
     const wk = weekKey();
+    // WEEK ROLLOVER. There's no cron here, so the first match of a new week
+    // settles the last one. Idempotent (paidWeeks guards it), so a hundred
+    // matches landing at once still pay exactly once.
+    if (lastSettledWeek && lastSettledWeek !== wk) {
+      try { await this.settleTimeAttackWeek(lastSettledWeek); } catch {}
+    }
+    lastSettledWeek = wk;
     for (const p of participants) {
       if (!p?.userId) continue;
       const u = users.get(p.userId);
@@ -973,7 +1110,8 @@ export const memoryStore = {
       }
       const premium = this.isPremium(u);
       const xp = premium ? Math.round(baseXp * PREMIUM_BONUS.xpMult) : baseXp;
-      const credits = premium ? Math.round(baseCredits * PREMIUM_BONUS.creditMult) : baseCredits;
+      let credits = premium ? Math.round(baseCredits * PREMIUM_BONUS.creditMult) : baseCredits;
+      if ((u.equippedPerks || []).includes("BEACH_ECONOMIST")) credits = Math.round(credits * 1.25);
       let prog = null, balance;
       try { prog = await this.addXp(p.userId, xp, `match:${matchId || "?"}`); } catch {}
       try { balance = await this.adjustBalance(p.userId, "CREDITS", credits, `match:${matchId || "?"}`); } catch {}
@@ -983,34 +1121,103 @@ export const memoryStore = {
       if (mode !== "timetrial") { try { await this._applyQuestProgress(u, p); } catch {} }
       if (mode === "timetrial") { try { this._recordTimeTrial(u, p); } catch {} }
 
-      // Lifetime stats
+      // Lifetime stats — the racing career sheet the Profile page renders.
       const s = u.stats;
-      const isImp = p.role === "impostor";
       s.matchesPlayed++;
-      if (isImp) s.matchesAsImpostor++; else s.matchesAsCrew++;
+      if (mode === "timetrial") s.timeTrials = (s.timeTrials || 0) + 1;
       if (p.won) {
-        s.wins++; if (isImp) s.winsAsImpostor++; else s.winsAsCrew++;
+        s.wins++;
         s.winStreak++; s.bestWinStreak = Math.max(s.bestWinStreak, s.winStreak);
       } else {
         s.losses++; s.winStreak = 0;
       }
-      s.tasksCompleted += p.tasksDone || 0;
-      s.sabotages += p.sabotages || 0;
-      s.impostorKills += p.kills || 0;
-      if (p.survived) s.ejections++; // "ejections" tracks matches survived to the end
+      if (p.place != null && mode !== "timetrial") {
+        if (p.place <= 2) s.podiums = (s.podiums || 0) + 1;
+        s.bestPlace = s.bestPlace == null ? p.place : Math.min(s.bestPlace, p.place);
+      }
+      if (p.bestLapSec > 0) s.bestLapSec = s.bestLapSec ? Math.min(s.bestLapSec, p.bestLapSec) : p.bestLapSec;
+      s.splashesCaused += p.splashesCaused || 0;
+      s.crumblesCaused += p.crumblesCaused || 0;
+
+      // ---- PER-MODE STATS ----
+      // The achievements can only ever reward what gets written here. Six modes
+      // shipped with nothing recording them, so every mode achievement was
+      // unreachable — which to a player looks exactly like a broken account.
+      s.modesSeen = s.modesSeen || {};
+      s.modesSeen[mode] = true;
+      s.modesPlayed = Object.keys(s.modesSeen).length;
+
+      s.derbyKills = (s.derbyKills || 0) + (p.derbyKills || 0);
+      s.flagCaptures = (s.flagCaptures || 0) + (p.flagCaptures || 0);
+      s.flagGrabs = (s.flagGrabs || 0) + (p.flagGrabs || 0);
+      s.flagReturns = (s.flagReturns || 0) + (p.flagReturns || 0);
+      s.drawingsGuessed = (s.drawingsGuessed || 0) + (p.drawingsGuessed || 0);
+      s.correctGuesses = (s.correctGuesses || 0) + (p.correctGuesses || 0);
+      s.tagsMade = (s.tagsMade || 0) + (p.tagsMade || 0);
+      s.itTimeTotal = (s.itTimeTotal || 0) + (p.itTime || 0);
+      s.pearls = (s.pearls || 0) + (p.pearls || 0);
+      s.pearlBest = Math.max(s.pearlBest || 0, p.pearls || 0);
+
+      // mode wins
+      if (p.won) {
+        if (mode === "derby") s.derbyWins = (s.derbyWins || 0) + 1;
+        if (mode === "artist") s.artistWins = (s.artistWins || 0) + 1;
+        if (mode === "pearl") s.pearlWins = (s.pearlWins || 0) + 1;
+      }
+      // the hard ones
+      if (mode === "derby" && p.won && (p.crumbles || 0) === 0) s.derbyFlawless = (s.derbyFlawless || 0) + 1;
+      if (mode === "ctf" && (p.flagCaptures || 0) >= 3) s.ctfSoloWin = (s.ctfSoloWin || 0) + 1;
+      if (mode === "tag" && p.won && (p.itTime || 0) === 0) s.tagUntouched = (s.tagUntouched || 0) + 1;
+
+      s.lapsCompleted = (s.lapsCompleted || 0) + (p.laps || 0);
+      s.ultimatesFired = (s.ultimatesFired || 0) + (p.ultimatesFired || 0);
+      s.krakenBest = Math.max(s.krakenBest || 0, p.krakenBest || 0);
+      s.keyPads = (s.keyPads || 0) + (p.keyPads || 0);
+      s.perfectLanes = (s.perfectLanes || 0) + (p.perfectLanes || 0);
+      if (p.comeback) s.comebacks = (s.comebacks || 0) + 1;
+
+      // TIME ATTACK: which circuits you've set a time on, and whether any of
+      // them put you in the top 3%.
+      if (mode === "timeattack" && p.bestLapSec > 0) {
+        s.circuitsSeen = s.circuitsSeen || {};
+        s.circuitsSeen[map?.id || "?"] = true;
+        s.circuitsTimed = Object.keys(s.circuitsSeen).length;
+
+        // put the time on the board, then ask where it landed
+        const tid = map?.id || "?";
+        await this.recordLap(p.userId, tid, p.bestLapSec);
+        // NO INSTANT PRIZE. The competition runs all week: unlimited attempts,
+        // only your best time on each map is kept, and the top 3% are paid when
+        // the week turns over (see settleTimeAttackWeek). Paying the moment you
+        // cross the line would mean the first person to post a decent lap on a
+        // quiet board gets paid and nobody can take it off them.
+        const pct = await this.lapPercentile(p.userId, tid, p.bestLapSec);
+        out.push({
+          userId: p.userId, kind: "lap_recorded", trackId: tid,
+          lapSec: p.bestLapSec,
+          percentile: pct == null ? null : Math.round(pct * 1000) / 10,
+          elite: pct != null && pct <= 0.03,        // "you're currently in the money"
+        });
+      }
+      s.itemsUsed += p.itemsUsed || 0;
+      s.challengesCompleted += p.challenges || 0;
+      s.sTiers += p.sTiers || 0;
+      s.totalRaceSec = Math.round((s.totalRaceSec || 0) + (p.totalSec || 0));
 
       // Detailed recent history (most-recent-first, last 10)
       u.matchHistory.unshift({
         matchId: matchId || null,
         at: new Date().toISOString(),
-        map: map?.name || map?.id || "Unknown",
-        mode: mode?.label || mode?.id || "Classic",
-        role: p.role, won: !!p.won,
-        tasksDone: p.tasksDone || 0, sabotages: p.sabotages || 0, kills: p.kills || 0,
-        survived: !!p.survived,
+        map: map?.name || map?.id || "Beach Circuit",
+        mode: mode === "timetrial" ? "Time Trial" : "Race",
+        place: p.place ?? null, won: !!p.won, laps: laps || 3,
+        bestLapSec: p.bestLapSec || null, totalSec: p.totalSec || null,
+        splashesCaused: p.splashesCaused || 0, crumblesCaused: p.crumblesCaused || 0,
+        itemsUsed: p.itemsUsed || 0,
+        xp, credits,
         others: participants
           .filter((x) => x.userId !== p.userId)
-          .map((x) => ({ userId: x.userId || null, name: x.name, role: x.role, won: !!x.won })),
+          .map((x) => ({ userId: x.userId || null, name: x.name, place: x.place ?? null })),
       });
       if (u.matchHistory.length > 10) u.matchHistory.length = 10;
 
@@ -1514,8 +1721,106 @@ export const memoryStore = {
   async listBoxes() { return [...boxConfigs.values()]; },
   async getBox(boxId) { return boxConfigs.get(boxId) || null; },
 
+  // ----- TIME ATTACK LEADERBOARD -----
+  // Time Attack is the ranked mode, and it had no ranking: the client called
+  // /player/leaderboard/laps, the route didn't exist, the fetch failed silently,
+  // and the board rendered empty forever. A ranked mode with no board is just a
+  // race against nobody.
+  async recordLap(userId, trackId, lapSec, wk = weekKey()) {
+    if (!(lapSec > 0) || !trackId) return null;
+    const u = users.get(String(userId));
+    if (!u) return null;
+    const key = `${wk}:${trackId}`;
+    lapBoard[key] = lapBoard[key] || new Map();
+    const prev = lapBoard[key].get(String(userId));
+    // Unlimited attempts — only your BEST time this week is kept. Grinding for a
+    // faster lap is the whole point; grinding for more ENTRIES would just be a
+    // reward for having free time.
+    if (prev && prev.lapSec <= lapSec) return prev;
+    const entry = { userId: String(userId), name: u.name, lapSec, at: new Date().toISOString(), improved: !!prev };
+    lapBoard[key].set(String(userId), entry);
+    return entry;
+  },
+
+  async getLapBoard(trackId = null, wk = weekKey()) {
+    const boards = {};
+    for (const [key, m] of Object.entries(lapBoard)) {
+      const [w, tid] = key.split(":");
+      if (w !== wk) continue;
+      if (trackId && tid !== trackId) continue;
+      const sorted = [...m.values()].sort((a, b) => a.lapSec - b.lapSec);
+      boards[tid] = sorted.slice(0, 100).map((e, i) => ({
+        ...e,
+        rank: i + 1,
+        // show people where the cut is — a leaderboard you can't see the edge of
+        // is just a list
+        elite: i < Math.max(1, Math.ceil(sorted.length * 0.03)),
+      }));
+    }
+    return { week: wk, boards, cutoffPct: 3 };
+  },
+
+  // Where does a time place this week, as a percentile? 0 = fastest.
+  async lapPercentile(userId, trackId, lapSec, wk = weekKey()) {
+    const m = lapBoard[`${wk}:${trackId}`];
+    if (!m || m.size < 2) return null;
+    const all = [...m.values()].map((e) => e.lapSec).sort((a, b) => a - b);
+    const better = all.filter((t) => t < lapSec).length;
+    return better / all.length;
+  },
+
+  // ---- THE WEEKLY PAYOUT ----
+  // At the end of a week, the top 3% on each circuit are paid. This is the
+  // difference between a prize and a participation trophy: you have all week to
+  // improve, everyone can see the cut line, and it's settled ONCE.
+  async settleTimeAttackWeek(wk) {
+    const results = [];
+    for (const [key, m] of Object.entries(lapBoard)) {
+      const [w, tid] = key.split(":");
+      if (w !== wk) continue;
+      if (paidWeeks.has(key)) continue;         // never pay a week twice
+      paidWeeks.add(key);
+
+      const sorted = [...m.values()].sort((a, b) => a.lapSec - b.lapSec);
+      if (sorted.length < 3) continue;          // a board of two isn't a competition
+      const cut = Math.max(1, Math.ceil(sorted.length * 0.03));
+
+      for (let i = 0; i < cut; i++) {
+        const e = sorted[i];
+        // 1st on a map is worth more than 3rd — a flat prize makes the top of the
+        // board pointless once you're inside the cut.
+        const prize = i === 0 ? 2000 : i === 1 ? 1200 : 750;
+        try {
+          await this.adjustBalance(e.userId, "CREDITS", prize, `elite:${wk}:${tid}`);
+          const u = users.get(String(e.userId));
+          if (u) {
+            u.stats = u.stats || {};
+            u.stats.top3Percent = (u.stats.top3Percent || 0) + 1;
+            evaluateAchievements(u);
+            u.inbox = u.inbox || [];
+            u.inbox.push({
+              kind: "elite_prize", week: wk, trackId: tid,
+              rank: i + 1, of: sorted.length, lapSec: e.lapSec, glass: prize,
+              at: new Date().toISOString(),
+            });
+          }
+          results.push({ userId: e.userId, trackId: tid, rank: i + 1, glass: prize });
+        } catch {}
+      }
+    }
+    return results;
+  },
+
   // ----- direct-purchase store items -----
-  async listStoreItems() { return [...storeItems.values()]; },
+  async listStoreItems() {
+    // Names come from the COSMETIC, never the store row. The store used to keep
+    // its own copy, so a reskin left "Bandit Helm" and "Gunslinger Rig" sitting
+    // in the shop long after the cosmetics themselves had been renamed.
+    return [...storeItems.values()].map((s) => {
+      const c = s.cosmeticId ? COSMETICS[s.cosmeticId] : null;
+      return c ? { ...s, name: c.name, rarity: c.rarity } : s;
+    });
+  },
   async getStoreItem(id) { return storeItems.get(id) || null; },
 
   // ----- admin: edit any store entry (item OR box) -----

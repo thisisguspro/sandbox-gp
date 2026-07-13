@@ -31,6 +31,11 @@ export async function getDaily() { return req("/player/daily"); }
 export async function claimQuest(questId) { return req("/player/daily/claim", { method: "POST", body: { questId } }); }
 export async function getProgress() { return req("/player/progress"); }
 export async function getLapBoard() { return req("/player/leaderboard/laps"); }
+export async function getPublicProfile(userId) { return req(`/profile/public/${userId}`); }
+export async function scrapItem(cosmeticId) { return req("/player/scrap", { method: "POST", body: { cosmeticId } }); }
+export async function craftItem(cosmeticId) { return req("/player/craft", { method: "POST", body: { cosmeticId } }); }
+export async function setPerks(equipped) { return req("/player/perks", { method: "POST", body: { equipped } }); }
+export async function claimAdmin(key) { return req("/admintool/claim", { method: "POST", body: { key } }); }
 
 export async function signInGoogle(idToken) {
   const data = await req("/auth/google", { method: "POST", auth: false, body: { idToken } });
@@ -84,7 +89,7 @@ export async function setWheelSlot(wheel, slotIndex, itemKey) { return req("/pro
 // --- wallet ---
 export async function getWallet() { return req("/player/wallet"); }
 
-// --- rewarded ads (watch an ad -> Silver Nuggets, capped per day) ---
+// --- rewarded ads (watch an ad -> Sea Glass, capped per day) ---
 export async function getAdReward() { return req("/player/ad-reward"); }                          // { amount, currency, cap, used, remaining }
 export async function claimAdReward() { return req("/player/ad-reward/claim", { method: "POST" }); } // { balance, amount, currency, cap, used, remaining }
 

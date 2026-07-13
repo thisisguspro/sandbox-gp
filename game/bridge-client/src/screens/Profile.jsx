@@ -70,7 +70,11 @@ export default function Profile({ user, profile, catalogue, onChange, social, on
             <Stat label={t("profile.stat.matches")} value={played} />
             <Stat label={t("profile.stat.wins")} value={wins} accent="var(--gold)" />
             <Stat label={t("profile.stat.winRate")} value={`${winRate}%`} accent="var(--volt)" />
-            <Stat label={t("profile.stat.karma")} value={profile.karma || 0} accent="var(--violet)" />
+            <Stat label="PODIUMS" value={stats.podiums || 0} accent="var(--gold)" />
+            <Stat label="BEST LAP" value={stats.bestLapSec ? `${stats.bestLapSec.toFixed(2)}s` : "—"} accent="var(--volt)" />
+            <Stat label="SPLASHES" value={stats.splashesCaused || 0} />
+            <Stat label="CRUMBLES" value={stats.crumblesCaused || 0} accent="var(--hot)" />
+            <Stat label="S-TIERS" value={stats.sTiers || 0} accent="var(--gold)" />
           </div>
         </div>
 
@@ -121,15 +125,24 @@ const TABS = [
 // ---- Overview: lifetime stat grid + last-10 recap ----
 function Overview({ stats, history, winRate, meId, karmaGiven, onChange }) {
   const { t } = useI18n();
+  // THIS GRID WAS THE OLD GAME. Every cell read a stat from the social-deduction
+  // fork — "Wins as Crew", "Wins as Impostor", "Tasks Completed", "Sabotages",
+  // "Ejections" — and every one of them was permanently 0, because a kart racer
+  // has no crew, no impostors, no tasks and nothing to sabotage. Eight stat cards
+  // that could only ever show zero.
   const cells = [
-    { label: t("profile.overview.winsAsCrew"), value: stats.winsAsCrew || 0, kanji: "◆" },
-    { label: t("profile.overview.winsAsImpostor"), value: stats.winsAsImpostor || 0, kanji: "◆" },
-    { label: t("profile.overview.tasksCompleted"), value: stats.tasksCompleted || 0, kanji: "◆" },
-    { label: t("profile.overview.sabotages"), value: stats.sabotages || 0, kanji: "◆" },
-    { label: t("profile.overview.takedowns"), value: stats.impostorKills || 0, kanji: "◆" },
-    { label: t("profile.overview.survived"), value: stats.ejections || 0, kanji: "◆" },
-    { label: t("profile.overview.bestStreak"), value: stats.bestWinStreak || 0, kanji: "◆" },
-    { label: t("profile.overview.currentStreak"), value: stats.winStreak || 0, kanji: "◆" },
+    { label: "MATCHES", value: stats.matchesPlayed || 0, kanji: "🏁" },
+    { label: "WINS", value: stats.wins || 0, kanji: "🏆" },
+    { label: "PODIUMS", value: stats.podiums || 0, kanji: "🥈" },
+    { label: "BEST LAP", value: stats.bestLapSec ? `${stats.bestLapSec.toFixed(2)}s` : "—", kanji: "⏱" },
+    { label: "SPLASHES", value: stats.splashesCaused || 0, kanji: "💦" },
+    { label: "TAKEDOWNS", value: stats.crumblesCaused || 0, kanji: "💥" },
+    { label: "ULTIMATES", value: stats.ultimatesFired || 0, kanji: "⚡" },
+    { label: "PEARLS", value: stats.pearls || 0, kanji: "🦪" },
+    { label: "FLAGS", value: stats.flagCaptures || 0, kanji: "🚩" },
+    { label: "DERBY WINS", value: stats.derbyWins || 0, kanji: "💀" },
+    { label: "BEST STREAK", value: stats.bestWinStreak || 0, kanji: "🔥" },
+    { label: "MODES PLAYED", value: `${stats.modesPlayed || 0}/7`, kanji: "🎲" },
   ];
   return (
     <div className="col" style={{ gap: 28 }}>
@@ -173,26 +186,29 @@ function HistoryRow({ h, meId, matchKarma = [], onChange }) {
     <div className="panel col" style={{ padding: "10px 16px", gap: 8, borderLeft: `3px solid ${won ? "var(--gold)" : "var(--hot-deep)"}` }}>
       <div className="row" style={{ alignItems: "center", gap: 16 }}>
         <div className="impactf" style={{ width: 54, fontSize: 14, color: won ? "var(--gold)" : "var(--hot)", letterSpacing: "0.08em", textTransform: "uppercase" }}>{won ? t("profile.history.win") : t("profile.history.loss")}</div>
-        <div className="row gap-s" style={{ alignItems: "center", minWidth: 120 }}>
-          <span style={{ ...roleChip, ...(h.role === "impostor" ? roleImpostor : roleCrew) }}>{(h.role || "crew").toUpperCase()}</span>
+        <div className="row gap-s" style={{ alignItems: "center", minWidth: 92 }}>
+          <span style={{ ...roleChip, ...(h.place === 1 ? roleImpostor : roleCrew) }}>
+            {h.place != null ? `P${h.place}` : (h.mode === "Time Trial" ? "⏱ TT" : "—")}
+          </span>
         </div>
-        <div className="dim" style={{ flex: 1, fontWeight: 600 }}>{h.map || "—"}{h.mode ? ` · ${h.mode}` : ""}</div>
+        <div className="dim" style={{ flex: 1, fontWeight: 600 }}>{h.map || "—"}{h.mode ? ` · ${h.mode}` : ""}{h.laps ? ` · ${h.laps} laps` : ""}</div>
         <div className="faint row gap-s" style={{ fontSize: 12 }}>
-          <span title={t("profile.history.tasks")}>{t("profile.history.tasksShort", { n: h.tasksDone ?? 0 })}</span>
-          <span title={t("profile.history.sabotages")}>{t("profile.history.sabotagesShort", { n: h.sabotages ?? 0 })}</span>
-          <span title={t("profile.history.takedowns")}>{t("profile.history.takedownsShort", { n: h.kills ?? 0 })}</span>
+          {h.bestLapSec ? <span title="Best lap">⏱ {h.bestLapSec.toFixed(2)}s</span> : null}
+          <span title="Splashes caused">💦 {h.splashesCaused ?? 0}</span>
+          <span title="XP earned">+{h.xp ?? 0} XP</span>
+          <span title="Sea glass earned">+{h.credits ?? 0} 🐚</span>
         </div>
         <div className="faint" style={{ fontSize: 11, width: 88, textAlign: "right" }}>{relTime(h.at, t)}</div>
       </div>
       {others.length > 0 && (
         <div className="row" style={{ flexWrap: "wrap", gap: 6, paddingLeft: 54, alignItems: "center" }}>
-          <span className="faint" style={{ fontSize: 10, letterSpacing: "0.1em", alignSelf: "center" }}>CREW</span>
+          <span className="faint" style={{ fontSize: 10, letterSpacing: "0.1em", alignSelf: "center" }}>GRID</span>
           {shown.map((o, i) => (
-            <span key={i} title={`${o.name} · ${o.role === "impostor" ? "impostor" : "crew"} · ${o.won ? "won" : "lost"}`}
-              style={{ ...otherChip, borderColor: o.role === "impostor" ? "var(--hot-deep)" : "var(--line)" }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", background: o.won ? "var(--gold)" : "var(--faint)" }} />
+            <span key={i} title={`${o.name}${o.place != null ? ` · P${o.place}` : ""}`}
+              style={{ ...otherChip, borderColor: o.place === 1 ? "var(--gold)" : "var(--line)" }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: o.place === 1 ? "var(--gold)" : "var(--faint)" }} />
               {o.name}
-              {o.role === "impostor" && <span className="kanji" style={{ fontSize: 11, color: "var(--violet)" }}>IMP</span>}
+              {o.place != null && <span className="impactf" style={{ fontSize: 10, color: "var(--dim)" }}>P{o.place}</span>}
             </span>
           ))}
           {extra > 0 && <span className="faint" style={{ fontSize: 11, alignSelf: "center" }}>+{extra}</span>}
@@ -209,7 +225,13 @@ function HistoryRow({ h, meId, matchKarma = [], onChange }) {
               <span className="row gap-s" style={{ alignItems: "center" }}>
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: o.won ? "var(--gold)" : "var(--faint)" }} />
                 <span style={{ fontSize: 13, color: "var(--paper)" }}>{o.name}</span>
-                {o.role === "impostor" && <span className="kanji" style={{ fontSize: 11, color: "var(--violet)" }}>IMP</span>}
+                {/* the "IMP" badge marked an impostor in the old game. There are no
+                    impostors here; a match row shows the MODE you played. */}
+                {o.mode && o.mode !== "race" && (
+                  <span className="impactf" style={{ fontSize: 9, color: "var(--volt)", letterSpacing: "0.1em" }}>
+                    {String(o.mode).toUpperCase()}
+                  </span>
+                )}
               </span>
               <PlayerActions userId={o.userId} name={o.name} matchId={h.matchId} showKarma
                 alreadyKarma={matchKarma.includes(o.userId)} karmaCapReached={capReached}
@@ -307,11 +329,65 @@ function FriendsTab({ social, onJoinFriend, avatarsById, bordersById }) {
 const mutualBadge = { fontSize: 9, letterSpacing: "0.12em", padding: "2px 6px", color: "var(--volt)", border: "1px solid var(--volt)", borderRadius: 2, textTransform: "uppercase" };
 
 // ---- Achievements grid ----
+// 54 achievements in one flat grid is a wall. Group them by mode, show how far
+// through each category you are, and let the ones you've earned float to the top
+// of their group — so a Pearl Rush player can see their Pearl Rush progress
+// instead of scrolling past forty racing achievements to find it.
+const CATS = [
+  { id: "general", label: "General", glyph: "🏖" },
+  { id: "race", label: "Grand Prix", glyph: "🏁" },
+  { id: "combat", label: "Combat", glyph: "💥" },
+  { id: "skill", label: "Skill", glyph: "⭕" },
+  { id: "timeattack", label: "Time Attack", glyph: "⏱" },
+  { id: "derby", label: "Demolition Derby", glyph: "💀" },
+  { id: "ctf", label: "Capture the Flag", glyph: "🚩" },
+  { id: "artist", label: "Sand Artist", glyph: "🎨" },
+  { id: "tag", label: "Riptide Tag", glyph: "🌊" },
+  { id: "pearl", label: "Pearl Rush", glyph: "🦪" },
+  { id: "collection", label: "Collection", glyph: "🧳" },
+];
+
 function Achievements({ achievements, avatarsById, bordersById }) {
   const { t } = useI18n();
+  const done = achievements.filter((a) => a.unlockedAt).length;
+  return (
+    <div className="col" style={{ gap: 22 }}>
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+        <div className="impactf" style={{ fontSize: 12, letterSpacing: "0.14em", color: "var(--dim)" }}>ACHIEVEMENTS</div>
+        <div className="display" style={{ fontSize: 24, color: "var(--gold)" }}>
+          {done} / {achievements.length}
+        </div>
+      </div>
+      {CATS.map((cat) => {
+        const inCat = achievements.filter((a) => a.cat === cat.id);
+        if (!inCat.length) return null;
+        const got = inCat.filter((a) => a.unlockedAt).length;
+        // earned first within a group — you want to see what you've got
+        const sorted = [...inCat].sort((a, b) => (b.unlockedAt ? 1 : 0) - (a.unlockedAt ? 1 : 0));
+        return (
+          <div key={cat.id}>
+            <div className="row" style={{ alignItems: "center", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 16 }}>{cat.glyph}</span>
+              <span className="impactf" style={{ fontSize: 12, letterSpacing: "0.1em", color: "var(--paper)" }}>
+                {cat.label.toUpperCase()}
+              </span>
+              <span className="faint" style={{ fontSize: 11 }}>{got}/{inCat.length}</span>
+              <div style={{ flex: 1, height: 4, background: "rgba(0,0,0,0.3)", borderRadius: 2, overflow: "hidden" }}>
+                <div style={{ width: `${(got / inCat.length) * 100}%`, height: "100%", background: got === inCat.length ? "var(--gold)" : "var(--volt)" }} />
+              </div>
+            </div>
+            <AchGrid list={sorted} avatarsById={avatarsById} bordersById={bordersById} t={t} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AchGrid({ list, avatarsById, bordersById, t }) {
   return (
     <div style={achGrid}>
-      {achievements.map((a) => {
+      {list.map((a) => {
         const done = !!a.unlockedAt;
         const pct = a.threshold > 0 ? Math.min(100, Math.round(((a.progress || 0) / a.threshold) * 100)) : 0;
         const reward = rewardLabel(a.reward, avatarsById, bordersById);
@@ -423,7 +499,7 @@ function Rankings({ rankings, meId, avatarsById, bordersById }) {
 }
 
 // ---- shared bits ----
-function IdentityBadge({ avatar, border, size = 80 }) {
+export function IdentityBadge({ avatar, border, size = 80 }) {
   const color = border?.color || "var(--line)";
   return (
     <div style={{ width: size, height: size, borderRadius: "50%", border: `3px solid ${color}`, background: "var(--ink-3)", display: "grid", placeItems: "center", boxShadow: `0 0 16px ${color}`, flexShrink: 0 }}>

@@ -47,12 +47,11 @@ export function createGameConnection({ onState, onEvents, onError, onConnect, on
     removeBot: (roomId, playerId) => socket.emit("remove_bot", { roomId, playerId }),
     startMatch: (roomId) => socket.emit("start_match", { roomId }),
     rematch: (roomId) => socket.emit("rematch", { roomId }),
-    // Secret impostor volunteering (lobby/draft): privately raise your draw weight.
-    // Invite a friend (by userId) to the current lobby (Task #3).
+    // Invite a friend (by userId) to the current lobby.
     inviteFriend: (roomId, friendId) => new Promise((r) => socket.emit("invite_friend", { roomId, friendId }, cb(r))),
     // in-match actions
     emote: (roomId, emoteId) => socket.emit("emote", { roomId, emoteId }),
-    raceInput: (roomId, throttle, steer) => socket.emit("race_input", { roomId, throttle, steer }),
+    raceInput: (roomId, throttle, steer, keys) => socket.emit("race_input", { roomId, throttle, steer, keys }),
     raceReset: (roomId) => socket.emit("race_reset", { roomId }),
     raceUse: (roomId) => socket.emit("race_use", { roomId }),
     leaveRoom: (roomId) => socket.emit("leave_room", { roomId }),

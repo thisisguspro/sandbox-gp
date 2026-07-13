@@ -6,6 +6,81 @@
 // ============================================================
 import * as THREE from "three";
 
+// ---- PER-TRACK THEMES -------------------------------------------------------
+// Every map is sand-based, but the sand is a different sand each time: golden
+// beach, sun-bleached Egyptian dust, cold white shingle, and pink lagoon silt.
+// Only the colours that define a place are overridden — everything else (curbs,
+// toy plastics, kart paint) stays constant so the game still reads as one game.
+export const THEMES = {
+  beach: {},   // the default palette below
+
+  egypt: {
+    skyTop: 0x6fb7d8, skyBottom: 0xffe6b0,
+    sunlight: 0xfff0cc, ambient: 0xd8c8a0,
+    sandLight: 0xe8c98c,   // bleached, hard-edged desert sand
+    sandDark: 0xc79a5c,
+    sandEdge: 0xfff2cf,
+    water: 0x3f9d8a,       // the Nile, if you can find it
+    stone: 0xd4b483,       // limestone
+    stoneDark: 0xa8834f,
+    accent: 0xf0c04a,      // gold leaf
+  },
+
+  shingle: {
+    skyTop: 0x9fd0e8, skyBottom: 0xeef4f6,
+    sunlight: 0xf2f8fb, ambient: 0xcfe0e8,
+    sandLight: 0xe9e6dd,   // white pebbles, cold and bright
+    sandDark: 0xbfbcb2,
+    sandEdge: 0xffffff,
+    water: 0x4aa8b8,       // cold Atlantic
+    stone: 0xd8d5cc,
+    stoneDark: 0x9a978e,
+    accent: 0x2fe6c8,
+  },
+
+  pier: {
+    skyTop: 0xf0a8c8, skyBottom: 0xffe0e8,   // rose sunset
+    sunlight: 0xffe4ee, ambient: 0xf2c8d8,
+    sandLight: 0xf5c4d4,   // the lagoon silt you can see through the water
+    sandDark: 0x8a4a5e,    // the dock's dark planks
+    sandEdge: 0xfff1f5,
+    water: 0xe86a9a,       // THE PINK SEA — the thing that will kill you
+    stone: 0xa8657a,
+    stoneDark: 0x6e3d4e,
+    accent: 0xfff1d6,
+  },
+
+  volcano: {
+    skyTop: 0x3a2a3a, skyBottom: 0xd97a4a,   // a bruised, smoky sunset
+    sunlight: 0xffb080, ambient: 0x6a4a5a,
+    sandLight: 0x4a4048,    // BLACK volcanic sand
+    sandDark: 0x2a2228,
+    sandEdge: 0xff8a3c,     // the road edge glows like a cooling ember
+    water: 0x2a5a6a,
+    stone: 0x3a3038,
+    stoneDark: 0x1c1620,
+    accent: 0xff5a1c,       // lava
+  },
+
+  night: {
+    skyTop: 0x0a1030, skyBottom: 0x2a3a6a,   // deep night
+    sunlight: 0xc8d8ff,     // moonlight, not sunlight
+    ambient: 0x3a4a7a,
+    sandLight: 0x8a8aa8,    // moonlit dune
+    sandDark: 0x5a5a78,
+    sandEdge: 0xd8e4ff,
+    water: 0x2fe6c8,        // BIOLUMINESCENCE
+    stone: 0x6a6a88,
+    stoneDark: 0x3a3a52,
+    accent: 0x2fe6c8,
+  },
+};
+
+// Resolve the live palette for a track: theme overrides on top of the default.
+export function paletteFor(theme) {
+  return { ...PALETTE, ...(THEMES[theme] || {}) };
+}
+
 export const PALETTE = {
   skyTop: 0x7ec8e8,      // soft summer sky
   skyBottom: 0xfff3d6,   // warm cream horizon

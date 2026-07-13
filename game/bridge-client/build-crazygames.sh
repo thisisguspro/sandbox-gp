@@ -10,7 +10,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # Our live server (Render). Override with: SERVER_URL=https://... ./build-crazygames.sh
-SERVER_URL="${SERVER_URL:-https://iron-frontier.onrender.com}"
+SERVER_URL="${SERVER_URL:-https://iron-frontier-4ddo.onrender.com}"
 echo "» backend/game server: $SERVER_URL"
 
 echo "» building with VITE_CRAZYGAMES=1 …"
@@ -21,6 +21,12 @@ npx vite build --outDir dist-cg
 
 echo "» verifying the URL is baked into the bundle …"
 grep -rql "$SERVER_URL" dist-cg/assets/*.js >/dev/null || { echo "!! SERVER_URL missing from bundle — aborting"; exit 1; }
+# dead hosts must never ship again (each cost a debugging night)
+for DEAD in "bridge-game-ylbm.onrender.com" "iron-frontier.onrender.com"; do
+  if [ "$SERVER_URL" != "https://$DEAD" ] && grep -rq "$DEAD" dist-cg/assets/*.js; then
+    echo "!! DEAD HOST $DEAD found in bundle — aborting"; exit 1
+  fi
+done
 
 echo "» zipping upload package …"
 rm -f sandbox-gp-crazygames-upload.zip

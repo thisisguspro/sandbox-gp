@@ -11,6 +11,22 @@ import { translateStrings, translatorConfigured } from "../lib/translator.js";
 // tied to a real admin identity, giving an audit trail.
 export const adminToolRouter = Router();
 
+// ---- Production admin bootstrap ----
+// Dev-login (which auto-grants superadmin) is hard-disabled in production, so a
+// live deploy has NO path to a first admin — the panel simply never appears.
+// Fix: the operator sets ADMIN_KEY in the environment; any signed-in account
+// that presents the matching key ONCE is promoted to superadmin. No key in the
+// env → the route is inert. The claim is audited like every other admin action.
+import { requireAuth } from "../middleware/auth.js";
+adminToolRouter.post("/claim", requireAuth, async (req, res) => {
+  const key = process.env.ADMIN_KEY || "";
+  if (!key) return res.status(404).json({ error: "Admin claim is not enabled on this server." });
+  if (String(req.body?.key || "") !== key) return res.status(403).json({ error: "Wrong admin key." });
+  await db.setAdminRole(req.userId, "superadmin");
+  try { await db.logAdminAction?.(req.userId, "claim", { via: "ADMIN_KEY" }); } catch {}
+  res.json({ ok: true, role: "superadmin" });
+});
+
 // Who am I / am I an admin? (the web app calls this on load)
 adminToolRouter.get("/me", requireAdminRole, async (req, res) => {
   res.json({ role: req.adminRole, userId: req.userId });

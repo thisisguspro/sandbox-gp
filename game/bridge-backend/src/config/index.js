@@ -93,9 +93,21 @@ export const PRISM_PACKS = {
 // ---- Two-currency economy, abstracted from day one ----
 // CREDITS = Silver Nugget (earned in-game). PREMIUM = Gold Nugget (bought with cash).
 // Internal keys stay CREDITS/PREMIUM everywhere; only the user-facing label westernizes.
+// ---- TWO CURRENCIES. That's it. ----
+//
+//   SEA GLASS  — the ONLY in-game currency. Earned by racing, earned by
+//                recycling cosmetics you don't want, and spent on everything
+//                that isn't cash-only: chests, crafting, all of it.
+//   SHELLS     — the cash currency. Real money. Premium cosmetics only.
+//
+// The keys stay CREDITS/PREMIUM because they're baked into every saved wallet,
+// every transaction log row and 70-odd call sites. Renaming the KEY would mean
+// migrating live balances for no gain; renaming the LABEL is what players see.
+// (There used to be a third balance, GLASS, held separately from CREDITS —
+// two in-game currencies doing the same job. They're one now.)
 export const CURRENCIES = {
-  CREDITS: { key: "CREDITS", label: "Silver Nugget", earnable: true, purchasable: false },
-  PREMIUM: { key: "PREMIUM", label: "Gold Nugget", earnable: false, purchasable: true }, // bought via Stripe gold bundles
+  CREDITS: { key: "CREDITS", label: "Sea Glass", glyph: "ᜃ", earnable: true, purchasable: false },
+  PREMIUM: { key: "PREMIUM", label: "Shell", glyph: "🐚", earnable: false, purchasable: true },
 };
 export const DEFAULT_CURRENCY = "CREDITS";
 

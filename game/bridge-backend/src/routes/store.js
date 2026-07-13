@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../store/index.js";
 import { requireAuth } from "../middleware/auth.js";
 import { CURRENCIES } from "../config/index.js";
+import { COSMETICS } from "../config/cosmetics.js";
 
 export const storeRouter = Router();
 
@@ -24,8 +25,19 @@ storeRouter.get("/boxes", async (req, res) => {
     const total = b.drops.reduce((a, d) => a + d.weight, 0);
     return {
       id: b.id, name: b.name, price: b.price, currency: b.currency,
-      odds: b.drops.map((d) => ({ item: d.item, rarity: d.rarity,
-        chance: +((d.weight / total) * 100).toFixed(2) })),
+      // Show players EXACTLY what's in the box and at what odds, with the
+      // cosmeticId so the client can render a real preview of each drop. Hiding
+      // the contents of a paid box is the kind of thing that gets a game pulled.
+      odds: b.drops.map((d) => {
+        const c = COSMETICS[d.cosmeticId];
+        return {
+          cosmeticId: d.cosmeticId,
+          item: c?.name || d.item,          // live name, not a stale copy
+          slot: c?.slot || null,
+          rarity: c?.rarity || d.rarity,
+          chance: +((d.weight / total) * 100).toFixed(2),
+        };
+      }),
     };
   }));
 });
@@ -40,9 +52,13 @@ function publicItem(it) {
 // Public: list direct-purchase store items. ?currency=CREDITS|PREMIUM to split
 // the two storefronts. NEVER includes worth/dropWeight.
 storeRouter.get("/items", async (req, res) => {
-  const filter = req.query.currency;
-  let items = (await db.listStoreItems()).filter((i) => i.enabled !== false);
-  if (filter) items = items.filter((i) => i.currency === filter);
+  // Only PREMIUM cosmetics are for sale. The seashell rows still exist in the
+  // data (admin tooling, price history), but the buy route rejects them — so
+  // listing them would render 30 buttons that can only ever produce an error.
+  // In-game items come from chests and the crafting bench, and the shop should
+  // say so by simply not offering them.
+  const all = await db.listStoreItems();
+  const items = all.filter((it) => it.enabled !== false && (it.currency === "PREMIUM" || !it.cosmeticId));
   res.json(items.map(publicItem));
 });
 
@@ -52,6 +68,18 @@ storeRouter.get("/items", async (req, res) => {
 storeRouter.post("/items/:id/buy", requireAuth, async (req, res) => {
   const it = await db.getStoreItem(req.params.id);
   if (!it || it.enabled === false) return res.status(404).json({ error: "Item not available." });
+
+  // SEASHELLS NO LONGER BUY COSMETICS. In-game items come out of chests, and if
+  // you want a SPECIFIC one you scrap duplicates for sea glass and craft it in
+  // the Locker. Enforced here, not just hidden in the UI — leaving the endpoint
+  // open would let a hacked client walk straight past the crafting economy.
+  // (Non-cosmetic products, like a paid name change, are still fine.)
+  if (it.currency !== "PREMIUM" && it.cosmeticId) {
+    return res.status(400).json({
+      error: "That's a chest drop — find it, or craft it with sea glass in your Locker.",
+    });
+  }
+
   const cur = it.currency === "PREMIUM" ? "PREMIUM" : "CREDITS";
   const label = CURRENCIES[cur].label + "s";
   const balance = await db.getBalance(req.userId, cur);

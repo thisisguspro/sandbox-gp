@@ -3,7 +3,7 @@ import * as api from "../api/backend.js";
 import { useI18n } from "../api/i18n.jsx";
 import { SpeedLines, Particles, useImpact, KanjiFlash } from "../components/effects.jsx";
 import ItemIcon from "../components/ItemIcon.jsx";
-import PilotPreview from "../components/PilotPreview.jsx";
+import KartPreview from "../components/KartPreview.jsx";
 import PremiumBadge from "../components/PremiumBadge.jsx";
 import NuggetIcon from "../components/NuggetIcon.jsx";
 import RewardedAd from "../components/RewardedAd.jsx";
@@ -16,7 +16,7 @@ import RewardedAd from "../components/RewardedAd.jsx";
 export default function Shop({ profile, catalogue, onChange }) {
   const { t } = useI18n();
   const { pop, layer } = useImpact();
-  const [tab, setTab] = useState("credits");
+  const [tab, setTab] = useState("boxes");   // seashells buy chests, not cosmetics
   const [wallet, setWallet] = useState({ CREDITS: 0, PREMIUM: 0 });
   const [items, setItems] = useState([]);
   const [boxes, setBoxes] = useState([]);
@@ -25,6 +25,7 @@ export default function Shop({ profile, catalogue, onChange }) {
   const [adInfo, setAdInfo] = useState(null);     // { amount, cap, used, remaining }
   const [adPlaying, setAdPlaying] = useState(false);
   const [busy, setBusy] = useState(null);
+  const [boxPreview, setBoxPreview] = useState(null);   // a drop you clicked to preview
   const [reveal, setReveal] = useState(null);     // box/cash reward reveal overlay
   const [flash, setFlash] = useState(null);
   const [note, setNote] = useState(null);
@@ -63,7 +64,7 @@ export default function Shop({ profile, catalogue, onChange }) {
     catch (err) { toast(err.message || t("shop.cantEquip")); }
   };
 
-  // Buy a cosmetic by spending its currency balance (Silver or Gold Nuggets).
+  // Buy a cosmetic by spending its currency balance (Silver or Shells).
   const buy = async (it, e) => {
     setBusy(it.id);
     try {
@@ -75,7 +76,7 @@ export default function Shop({ profile, catalogue, onChange }) {
     } catch (err) { toast(err.message); } finally { setBusy(null); }
   };
 
-  // Buy a Gold Nugget bundle with real money (Stripe; stubbed in dev).
+  // Buy a Shell bundle with real money (Stripe; stubbed in dev).
   const buyGold = async (pack) => {
     setBusy(pack.id);
     try {
@@ -91,7 +92,7 @@ export default function Shop({ profile, catalogue, onChange }) {
   };
 
   const openBox = async (box, e) => {
-    if (wallet[box.currency] < box.price) return toast(box.currency === "PREMIUM" ? t("shop.notEnoughGold") : t("shop.notEnoughSilver"));
+    if (wallet[box.currency] < box.price) return toast(box.currency === "PREMIUM" ? t("shop.notEnoughGold") : "Not enough sea glass.");
     setBusy(box.id);
     try {
       if (e) pop(e.clientX, e.clientY);
@@ -165,14 +166,18 @@ export default function Shop({ profile, catalogue, onChange }) {
           </div>
           <div className="row gap-m" style={{ alignItems: "center" }}>
             <PremiumBadge premium={wallet.premium} premiumUntil={wallet.premiumUntil} />
-            <Balance label={t("shop.silverNuggets")} value={wallet.CREDITS} color="var(--volt)" variant="silver" />
-            <Balance label={t("shop.goldNuggets")} value={wallet.PREMIUM} color="var(--gold)" variant="gold" />
+            <Balance label="SEA GLASS" value={wallet.CREDITS} color="var(--volt)" variant="silver" />
+            <Balance label="SHELLS" value={wallet.PREMIUM} color="var(--gold)" variant="gold" />
           </div>
         </div>
 
         {/* tabs */}
         <div style={{ display: "flex", gap: 2, padding: "16px 36px 0", borderBottom: "2px solid var(--line)" }}>
-          {[["credits", t("shop.tab.silverStore")], ["cash", t("shop.tab.goldStore")], ["boxes", t("shop.tab.lootBoxes")], ["loyalty", t("shop.tab.loyalty")]].map(([k, label]) => (
+          {/* Sea Glass buy BOXES, not cosmetics. If you want a specific in-game
+              item you scrap duplicates for sea glass and craft it in the Locker —
+              that's the whole point of the crafting economy. Shells buy
+              the premium pieces, which can never be crafted. */}
+          {[["boxes", "BEACH CHESTS"], ["cash", "SHELL STORE"], ["loyalty", "LOYALTY"]].map(([k, label]) => (
             <button key={k} onClick={() => { setTab(k); setTryOn(null); }} style={{ ...tabBtn, ...(tab === k ? tabOn : null) }}>
               <span className="impactf" style={{ fontSize: 12 }}>{label.toUpperCase()}</span>
             </button>
@@ -184,23 +189,13 @@ export default function Shop({ profile, catalogue, onChange }) {
           {/* pilot preview sidebar */}
           <div style={shopPreviewCol}>
             <div className="tag" style={{ marginBottom: 14 }}><span>{tryOn ? t("shop.tryingOn") : t("shop.yourRider")}</span></div>
-            <PilotPreview loadout={previewLoadout} catalogue={catalogue} height={300} scale={2.2} />
+            <KartPreview loadout={previewLoadout} height={300} />
             <div className="faint" style={{ fontSize: 11, textAlign: "center", marginTop: 8, minHeight: 14 }}>
               {tryOn ? tryOn.name : t("shop.hoverToTry")}
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "22px 36px 40px" }} onMouseLeave={() => setTryOn(null)}>
-          {tab === "credits" && (
-            <>
-              <WatchAdCard info={adInfo} busy={busy === "ad"} onWatch={startAd} />
-              <Grid>
-                {creditsItems.map((it) => (
-                  <ItemCard key={it.id} it={it} cosmetic={cosmeticsById[it.cosmeticId]} owned={isOwned(profile, it)} busy={busy === it.id}
-                    cur="credits" canAfford={wallet.CREDITS >= it.price} onBuy={(e) => buy(it, e)} onHover={setTryOn} />
-                ))}
-              </Grid>
-            </>
-          )}
+
           {tab === "cash" && (
             <>
               <div className="panel" style={{ padding: "10px 16px", marginBottom: 16, borderColor: "var(--hot-deep)", display: "block" }}>
@@ -223,12 +218,47 @@ export default function Shop({ profile, catalogue, onChange }) {
             </>
           )}
           {tab === "boxes" && (
-            <Grid>
+            <>
+              <WatchAdCard info={adInfo} busy={busy === "ad"} onWatch={startAd} />
+              <div className="panel" style={{ padding: "12px 16px", marginBottom: 16, display: "block", borderColor: "var(--volt)" }}>
+                <div className="impactf" style={{ fontSize: 11, color: "var(--volt)", letterSpacing: "0.12em" }}>HOW IN-GAME ITEMS WORK</div>
+                <div className="dim" style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5 }}>
+                  Chests drop cosmetics. Got a duplicate you'll never wear? <b style={{ color: "var(--paper)" }}>Scrap it in the Locker</b> for
+                  sea glass, then <b style={{ color: "var(--paper)" }}>craft</b> the one you actually want. Nothing in a chest is sold directly —
+                  you either find it or you make it.
+                </div>
+              </div>
+              <Grid>
               {boxes.map((box) => (
                 <BoxCard key={box.id} box={box} busy={busy === box.id} balance={wallet[box.currency]}
-                  onOpen={(e) => openBox(box, e)} />
+                  onOpen={(e) => openBox(box, e)}
+                  onPreview={(drop) => setBoxPreview(drop)} />
               ))}
-            </Grid>
+              </Grid>
+            </>
+          )}
+          {/* PREVIEW A DROP — see it on your own kart before you spend a shell. */}
+          {boxPreview && (
+            <div onClick={() => setBoxPreview(null)}
+              style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(3,20,27,0.82)", display: "grid", placeItems: "center", padding: 20 }}>
+              <div onClick={(e) => e.stopPropagation()} className="leather-panel"
+                style={{ width: "min(440px, 100%)", padding: 20, borderRadius: 14, border: "2px solid var(--line)" }}>
+                <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+                  <div className="display" style={{ fontSize: 26, color: "#fff" }}>{boxPreview.item}</div>
+                  <div className="impactf" style={{ fontSize: 12, color: rarityColor(boxPreview.rarity) }}>
+                    {(boxPreview.rarity || "").toUpperCase()} · {boxPreview.chance}%
+                  </div>
+                </div>
+                <KartPreview
+                  loadout={{ ...(profile?.loadout || {}), [boxPreview.slot]: boxPreview.cosmeticId }}
+                  height={260}
+                />
+                <div className="dim" style={{ fontSize: 12, textAlign: "center", marginTop: -6 }}>
+                  Shown on your kart. You don't own this yet.
+                </div>
+                <button className="btn" style={{ width: "100%", marginTop: 14 }} onClick={() => setBoxPreview(null)}>CLOSE</button>
+              </div>
+            </div>
           )}
           {tab === "loyalty" && (
             <LoyaltyPanel loyalty={loyalty} cosmeticsById={cosmeticsById} busy={busy} onClaim={claimLoyalty} />
@@ -260,7 +290,7 @@ function Grid({ children }) {
   return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 14 }}>{children}</div>;
 }
 
-// "Watch an ad -> Silver Nuggets" banner at the top of the Silver Store. Shows how
+// "Watch an ad -> Sea Glass" banner at the top of the Silver Store. Shows how
 // many claims remain today; the server is the source of truth for both the cap and
 // the grant. `info == null` means the status is still loading.
 function WatchAdCard({ info, busy, onWatch }) {
@@ -346,7 +376,7 @@ function BundleCard({ pack, busy, onBuy }) {
   );
 }
 
-function BoxCard({ box, busy, balance, onOpen }) {
+function BoxCard({ box, busy, balance, onOpen, onPreview }) {
   const { t } = useI18n();
   const afford = balance >= box.price;
   return (
@@ -371,12 +401,25 @@ function BoxCard({ box, busy, balance, onOpen }) {
         <span className="display" style={{ display: "none", fontSize: 48, color: "var(--hot)" }}>▣</span>
       </div>
       <div className="impactf" style={{ fontSize: 15, marginTop: 12 }}>{box.name}</div>
+      {/* EXACTLY what's inside, at what odds — and every drop is clickable so you
+          can see it on your own kart BEFORE you spend anything. */}
       <div className="col gap-s" style={{ marginTop: 8, marginBottom: 12 }}>
         {(box.odds || []).map((o, i) => (
-          <div key={i} className="row" style={{ justifyContent: "space-between", fontSize: 11 }}>
-            <span className="row gap-s"><span style={{ width: 6, height: 6, background: rarityColor(o.rarity), display: "inline-block" }} />{o.item}</span>
+          <button key={i}
+            onClick={(e) => { e.stopPropagation(); onPreview?.(o); }}
+            title={`Preview ${o.item} on your kart`}
+            style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              width: "100%", padding: "3px 5px", borderRadius: 5, cursor: "pointer",
+              background: "transparent", border: "1px solid transparent", fontSize: 11 }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.borderColor = "var(--line)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
+            <span className="row gap-s" style={{ alignItems: "center" }}>
+              <span style={{ width: 6, height: 6, background: rarityColor(o.rarity), display: "inline-block" }} />
+              <span style={{ color: "var(--paper)" }}>{o.item}</span>
+              <span style={{ fontSize: 9, opacity: 0.55 }}>👁</span>
+            </span>
             <span className="faint">{o.chance}%</span>
-          </div>
+          </button>
         ))}
       </div>
       <button className="btn btn-hot" style={{ width: "100%", fontSize: 15, opacity: afford ? 1 : 0.5 }} disabled={busy || !afford} onClick={onOpen}>
@@ -528,7 +571,7 @@ function fmtDur(ms, t) {
 }
 
 function glyphFor() { return "★"; }
-function rarityColor(r) { return { Common: "var(--r-common)", Rare: "var(--r-rare)", Epic: "var(--r-epic)", Legendary: "var(--r-legendary)" }[r] || "var(--r-common)"; }
+function rarityColor(r) { return { Common: "var(--r-common)", Rare: "var(--r-rare)", Epic: "var(--r-epic)", Legendary: "var(--r-legendary)", Mythic: "var(--r-mythic)" }[r] || "var(--r-common)"; }
 
 const wrap = { height: "100%", position: "relative", overflow: "hidden", background: "radial-gradient(120% 100% at 70% 0%, #221726 0%, var(--ink) 55%)" };
 const shopPreviewCol = { width: 240, flexShrink: 0, borderRight: "2px solid var(--line)", background: "var(--ink-2)", padding: "24px 16px", display: "flex", flexDirection: "column", alignItems: "center", overflowY: "auto" };

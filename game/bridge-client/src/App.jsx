@@ -10,7 +10,6 @@ import Onboarding from "./screens/Onboarding.jsx";
 import Hangar from "./screens/Hangar.jsx";
 import Locker from "./screens/Locker.jsx";
 import Shop from "./screens/Shop.jsx";
-import Wheels from "./screens/Wheels.jsx";
 import Settings from "./screens/Settings.jsx";
 import Play from "./screens/Play.jsx";
 import Profile from "./screens/Profile.jsx";
@@ -176,11 +175,10 @@ export default function App() {
       <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {screen === "hangar" && <Hangar user={user} profile={profile} catalogue={catalogue} />}
         {screen === "news" && <News onUnreadChange={refreshNews} />}
-        {screen === "perks" && <Perks profile={profile} />}
+        {screen === "perks" && <Perks profile={profile} onAccountChange={refreshProfile} />}
         {screen === "profile" && <Profile user={user} profile={profile} catalogue={catalogue} onChange={refreshProfile} social={social} onJoinFriend={joinFriend} />}
         {screen === "locker" && <Locker profile={profile} catalogue={catalogue} onChange={refreshProfile} />}
         {screen === "shop" && <Shop profile={profile} catalogue={catalogue} onChange={refreshProfile} />}
-        {screen === "wheels" && <Wheels profile={profile} catalogue={catalogue} />}
         {screen === "settings" && <Settings user={user} profile={profile} onAccountChange={refreshUserAndProfile} onGoShop={() => setScreen("shop")} />}
         {screen === "admin" && user?.adminRole && <Admin user={user} />}
         {screen === "play" && <Play user={user} profile={profile} catalogue={catalogue} onRoomStatus={setInRoom} onChange={refreshProfile}

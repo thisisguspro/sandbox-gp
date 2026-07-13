@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as api from "../api/backend.js";
 import { createGameConnection } from "../api/game.js";
 import { SpeedLines, useImpact, KanjiFlash, SlashEffect } from "../components/effects.jsx";
-import IsoPilot from "../components/IsoPilot.jsx";
 import { sfx, initAudio } from "../api/audio.js";
 import { playScene } from "../api/music.js";
 import { PlayerActions } from "../components/CrewActions.jsx";
 import PremiumBadge, { PREMIUM_MULT } from "../components/PremiumBadge.jsx";
 import { useI18n } from "../api/i18n.jsx";
+import Podium3D from "../game/podium3d.jsx";
+import ProfileCard from "../components/ProfileCard.jsx";
 import { analytics } from "../api/analytics.js";
 import { cgGameplayStart, cgGameplayStop, cgHappytime, cgUpdateRoom, cgClearRoom, cgMidgameAd } from "../api/crazygames.js";
 import Race3D from "./Race3D.jsx";
@@ -211,7 +212,11 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
   // bots. The shortest path from menu to racing.
   const quickPlay = async () => {
     setError(null);
-    const res = await conn.createRoom({ isPublic: false }, user.name);
+    // dev_fastrace=1 (QA only): a 1-lap testloop race so finish/results flows
+    // can be exercised in seconds instead of the grand circuit's 4+ minutes
+    const fast = new URLSearchParams(window.location.search).get("dev_fastrace") === "1";
+    const cfg = fast ? { isPublic: false, laps: 1, trackId: "testloop", finishTimeoutSec: 6 } : { isPublic: false };
+    const res = await conn.createRoom(cfg, user.name);
     if (res.error) return setError(res.error);
     if (res.playerId) playerIdRef.current = res.playerId;
     if (res.rejoinToken) rejoinTokenRef.current = res.rejoinToken;
@@ -552,13 +557,15 @@ function LobbyRoom({ view, roomId, conn, isHost, onLeave }) {
           <div style={{ ...mainCardStyle, borderColor: "rgba(255,200,61,0.25)" }}>
             <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
               <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.12em", color: "var(--gold)", textTransform: "uppercase" }}>{t("play.lobby.lastRunPerks")}</div>
-              {(view.previousWinner === "crew" || view.previousWinner === "impostors") && (
-                <div className="faint" style={{ fontSize: 10 }}>{view.previousWinner === "crew" ? t("play.lobby.crewWon") : t("play.lobby.impostorsWon")}</div>
+              {/* "Crew won / Impostors won" — from the deduction game. There are no
+                  sides in a kart race; the winner is a racer. */}
+              {view.previousWinner && (
+                <div className="faint" style={{ fontSize: 10 }}>{view.previousWinner} won</div>
               )}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {view.previousPerks.map((pk) => {
-                const col = pk.side === "impostor" ? "var(--violet)" : pk.side === "both" ? "var(--gold)" : "var(--volt)";
+                const col = "var(--volt)";   // every perk is a racing perk now
                 return (
                   <div key={pk.key} title={pk.desc} style={{ border: `1px solid ${col}`, borderLeft: `3px solid ${col}`, padding: "6px 10px", background: "rgba(13,11,20,0.6)" }}>
                     <span className="display" style={{ fontSize: 14, color: "#fff" }}>{pk.label}</span>
@@ -718,6 +725,71 @@ function LobbyRoom({ view, roomId, conn, isHost, onLeave }) {
 
         {isHost ? (
           <>
+          {/* ---- MODE PICKER ---- */}
+          <div style={{ marginBottom: 14 }}>
+            <div className="impactf faint" style={{ fontSize: 11, letterSpacing: "0.14em", marginBottom: 6 }}>MODE</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+              {[
+                { id: "race", name: "🏁 Grand Prix", blurb: "Three laps. Items. The classic.", n: "1–4" },
+                { id: "timeattack", name: "⏱ Time Attack", blurb: "You, the track, the clock. Ranked.", n: "1" },
+                { id: "derby", name: "💥 Demolition Derby", blurb: "Last kart standing. Wreckers hunt you.", n: "2–8" },
+                { id: "ctf", name: "🚩 Capture the Flag", blurb: "Teams. Walls block sight.", n: "2–8" },
+                { id: "artist", name: "🎨 Sand Artist", blurb: "Draw with water. Guess by driving.", n: "3–8" },
+                { id: "tag", name: "🌊 Riptide Tag", blurb: "Don't be IT at the horn.", n: "3–8" },
+                { id: "pearl", name: "🦪 Pearl Rush", blurb: "Grab the most. Get hit, drop them.", n: "2–8" },
+              ].map((m) => {
+                const on = (view?.mode?.id || "race") === m.id;
+                return (
+                  <button key={m.id}
+                    onClick={() => conn.updateConfig?.(roomId, { mode: m.id })}
+                    style={{
+                      textAlign: "left", padding: "9px 11px", borderRadius: 10, cursor: "pointer",
+                      background: on ? "rgba(255,90,60,0.18)" : "rgba(0,0,0,0.26)",
+                      border: on ? "2px solid var(--hot)" : "2px solid var(--line)",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontWeight: 800, fontSize: 12.5, color: "var(--paper)" }}>{m.name}</span>
+                      <span className="impactf" style={{ fontSize: 9.5, color: "var(--dim)" }}>{m.n}</span>
+                    </div>
+                    <div className="dim" style={{ fontSize: 10.5, marginTop: 3 }}>{m.blurb}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* ---- CIRCUIT PICKER: four maps, all sand, none alike ---- */}
+          <div style={{ marginBottom: 14, display: ["race", "timeattack"].includes(view?.mode?.id || "race") ? "block" : "none" }}>
+            <div className="impactf faint" style={{ fontSize: 11, letterSpacing: "0.14em", marginBottom: 6 }}>CIRCUIT</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 6 }}>
+              {[
+                { id: "random", name: "🎲 Random Circuit", blurb: "Revealed at the green flag", c: "#2fe6c8" },
+                { id: "sandcastle", name: "Sandcastle Grand Circuit", blurb: "Beach · the bridge jump", c: "#f7c04a" },
+                { id: "pharaoh", name: "Valley of Kings", blurb: "Egypt · the sunken tomb", c: "#e8c98c" },
+                { id: "shingle", name: "Shingle Cove", blurb: "White stone · technical", c: "#e9e6dd" },
+                { id: "pier", name: "Rose Lagoon Pier", blurb: "⚠ NO RAILS · fall = swim", c: "#e86a9a" },
+                { id: "volcano", name: "Obsidian Shore", blurb: "Black sand · ⚠ LAVA BURNS", c: "#ff5a1c" },
+                { id: "dunes", name: "Moonlit Dunes", blurb: "Night · big jumps · glowing pools", c: "#2fe6c8" },
+              ].map((m) => {
+                const on = (view?.map?.trackId || "random") === m.id;
+                return (
+                  <button key={m.id}
+                    onClick={() => conn.updateConfig?.(roomId, { trackId: m.id })}
+                    style={{
+                      textAlign: "left", padding: "9px 11px", borderRadius: 10, cursor: "pointer",
+                      background: on ? "rgba(47,230,200,0.16)" : "rgba(0,0,0,0.26)",
+                      border: on ? "2px solid var(--volt)" : "2px solid var(--line)",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                      <span style={{ width: 11, height: 11, borderRadius: 3, background: m.c, flexShrink: 0 }} />
+                      <span style={{ fontWeight: 800, fontSize: 12.5, color: "var(--paper)" }}>{m.name}</span>
+                    </div>
+                    <div className="dim" style={{ fontSize: 10.5, marginTop: 3 }}>{m.blurb}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <button
             style={{
               ...beginDraftBtn,
@@ -800,9 +872,10 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
   // on a win — and the Gold Trail pass multiplies both while it's active.
   const premiumActive = !!profile?.premium;
   // Mirrors the backend reward rules exactly (see ingestMatchResult):
-  // RACE — place pays 12/8/5/3 Seashells, 50 XP +75 win, both × laps/3 (cap 1).
-  // TIME TRIAL — flat 2 Seashells + 30 XP; the weekly board is the prize.
-  const isTimeTrial = view.mode === "timetrial";
+  // RACE — place pays 12/8/5/3 Sea Glass, 50 XP +75 win, both × laps/3 (cap 1).
+  // TIME TRIAL — flat 2 Sea Glass + 30 XP; the weekly board is the prize.
+  const isTimeTrial = view.mode === "timetrial" || view.mode === "timeattack";
+  const modeId = typeof view.mode === "string" ? view.mode : view.mode?.id;
   const lapsFactor = Math.min(1, Math.max(1, view.map?.laps || 3) / 3);
   const PLACE_PAY = [12, 8, 5, 3];
   const baseXp = isTimeTrial ? 30 : Math.round((50 + (iWon ? 75 : 0)) * lapsFactor);
@@ -820,6 +893,7 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
   }, []);
   // Time trial: your clock + the weekly board instead of a combat report.
   const [lapBoard, setLapBoard] = useState(null);
+  const [inspect, setInspect] = useState(null);   // userId → profile card modal
   useEffect(() => {
     if (!isTimeTrial) return;
     let alive = true;
@@ -896,36 +970,109 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
             <div className="dim" style={{ fontSize: 13, fontWeight: 600 }}>{WIN_REASON_TEXT[view.winReason] || "Race complete."}</div>
           </div>
 
-          {/* Victory podium: the winning side's pilots in full costume + ID color,
-              striking a victory pose (their equipped emote, or a triumphant hop). */}
-          <div className="tag" style={{ margin: "12px 0 0" }}><span>{t("play.hud.theVictors")}</span></div>
-          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", gap: 6, paddingTop: 24 * vScale + 12, marginBottom: 4 }}>
-            {victors.map((p, i) => (
-              <div key={p.id} style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", width: 92 * vScale + 12 }}>
-                {/* spotlight glow pooling under the pilot */}
-                <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", width: 92 * vScale, height: 70 * vScale, background: "radial-gradient(circle at 50% 75%, rgba(255,200,61,0.22) 0%, transparent 62%)", pointerEvents: "none" }} />
-                <div style={{ position: "relative", animation: `victorHop 1.15s ease-in-out ${(i % 5) * 0.18}s infinite` }}>
-                  <IsoPilot
-                    player={{ ...p, plane: "physical", emote: null }}
-                    facing="S" scale={vScale} preview
-                    playingEmote={p.loadout?.emote || null}
-                  />
+          {/* ---- MODE RESULTS ----
+              A racing podium is the wrong answer for a mode that isn't a race.
+              CTF ends on a team score; a derby ends with one kart standing and
+              seven wrecks; Pearl Rush ends on a haul. Show what the mode actually
+              measured, THEN the podium. */}
+          {modeId === "ctf" && view.modeWorld?.teams && (
+            <div className="leather-panel" style={{ margin: "12px 0", padding: 18, textAlign: "center" }}>
+              <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--dim)" }}>FINAL SCORE</div>
+              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 24, marginTop: 8 }}>
+                <div>
+                  <div className="display" style={{ fontSize: 56, color: "#2fe6c8" }}>{view.modeWorld.teams[0]}</div>
+                  <div className="impactf" style={{ fontSize: 12, color: "#2fe6c8" }}>TEAL</div>
                 </div>
-                <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6, maxWidth: "100%" }}>
-                  <span style={{ width: 10, height: 10, borderRadius: "50%", flexShrink: 0, background: p.idColor || "var(--dim)", border: "2px solid var(--ink)", boxShadow: "0 0 0 1px var(--line)" }} />
-                  <span className="impactf" style={{ fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}{p.id === you.id ? " (you)" : ""}</span>
+                <div className="display" style={{ fontSize: 28, color: "var(--dim)" }}>—</div>
+                <div>
+                  <div className="display" style={{ fontSize: 56, color: "#ff5a3c" }}>{view.modeWorld.teams[1]}</div>
+                  <div className="impactf" style={{ fontSize: 12, color: "#ff5a3c" }}>CORAL</div>
                 </div>
-                <span className="impactf" style={{ fontSize: 8.5, letterSpacing: "0.14em", marginTop: 1, color: "var(--gold)" }}>WINNER</span>
               </div>
-            ))}
-          </div>
-          <style>{`@keyframes victorHop {
-            0%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-9px); }
-            50% { transform: translateY(-2px); }
-            65% { transform: translateY(-6px); }
-            80% { transform: translateY(0); }
-          }`}</style>
+              <div className="display" style={{ fontSize: 22, marginTop: 10, color: "var(--gold)" }}>
+                {view.modeWorld.teams[0] > view.modeWorld.teams[1] ? "TEAL WINS" : "CORAL WINS"}
+              </div>
+            </div>
+          )}
+          {modeId === "derby" && (
+            <div className="leather-panel" style={{ margin: "12px 0", padding: 18, textAlign: "center" }}>
+              <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--dim)" }}>LAST KART ROLLING</div>
+              <div className="display" style={{ fontSize: 44, color: "var(--gold)", marginTop: 4 }}>
+                💀 {standings[0]?.name ?? "—"}
+              </div>
+              <div className="dim" style={{ fontSize: 13, marginTop: 4 }}>
+                {players.length - 1} wrecks · {standings[0]?.modeScore ?? 0} lives left
+              </div>
+            </div>
+          )}
+          {modeId === "pearl" && (
+            <div className="leather-panel" style={{ margin: "12px 0", padding: 18 }}>
+              <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--dim)", textAlign: "center" }}>THE HAUL</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 10 }}>
+                {standings.slice(0, 8).map((p, i) => (
+                  <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="impactf" style={{ width: 22, color: i === 0 ? "var(--gold)" : "var(--dim)" }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontWeight: 700, fontSize: 13 }}>{i === 0 ? "👑 " : ""}{p.name}</span>
+                    <div style={{ flex: 2, height: 10, background: "rgba(0,0,0,0.35)", borderRadius: 5, overflow: "hidden" }}>
+                      <div style={{
+                        width: `${Math.min(100, ((p.modeScore || 0) / Math.max(1, standings[0]?.modeScore || 1)) * 100)}%`,
+                        height: "100%", background: i === 0 ? "var(--gold)" : "var(--volt)",
+                      }} />
+                    </div>
+                    <span className="display" style={{ width: 42, textAlign: "right", fontSize: 18 }}>{p.modeScore ?? 0}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {modeId === "artist" && (
+            <div className="leather-panel" style={{ margin: "12px 0", padding: 18 }}>
+              <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--dim)", textAlign: "center" }}>THE GALLERY</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 10 }}>
+                {standings.map((p, i) => (
+                  <div key={p.id} className="row" style={{ justifyContent: "space-between", padding: "4px 8px",
+                    background: i === 0 ? "rgba(247,192,74,0.12)" : "transparent", borderRadius: 6 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{i === 0 ? "🎨 " : ""}{p.name}</span>
+                    <span className="display" style={{ fontSize: 20, color: i === 0 ? "var(--gold)" : "var(--paper)" }}>{p.modeScore ?? 0} PTS</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {modeId === "tag" && (
+            <div className="leather-panel" style={{ margin: "12px 0", padding: 18 }}>
+              <div className="impactf" style={{ fontSize: 11, letterSpacing: "0.14em", color: "var(--dim)", textAlign: "center" }}>TIME SPENT AS IT — LOWEST WINS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 10 }}>
+                {standings.map((p, i) => (
+                  <div key={p.id} className="row" style={{ justifyContent: "space-between", padding: "4px 8px" }}>
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{i === 0 ? "🕊 " : ""}{p.name}</span>
+                    <span className="display" style={{ fontSize: 20, color: i === 0 ? "var(--volt)" : "var(--hot)" }}>
+                      {Math.abs(p.modeScore ?? 0)}s
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* THE PODIUM: top three, in their karts, on real steps. */}
+          {!isTimeTrial && (
+            <>
+              <div className="tag" style={{ margin: "12px 0 0" }}><span>🏆 THE PODIUM</span></div>
+              <Podium3D top3={standings.filter((p) => p.place >= 1 && p.place <= 3)} width={470} height={252} />
+              <div style={{ display: "flex", justifyContent: "center", gap: 46, marginTop: -6, marginBottom: 6 }}>
+                {[2, 1, 3].map((n) => {
+                  const p = standings.find((s) => s.place === n);
+                  return (
+                    <div key={n} style={{ textAlign: "center", width: 110 }}>
+                      <div className="impactf" style={{ fontSize: 11, color: n === 1 ? "var(--gold)" : "var(--dim)", letterSpacing: "0.14em" }}>{n === 1 ? "🥇" : n === 2 ? "🥈" : "🥉"} P{n}</div>
+                      <div className="impactf" style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p ? p.name : "—"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
 
           {isTimeTrial && (
             <div className="leather-panel" style={{ margin: "18px 0 14px", padding: 16 }}>
@@ -963,15 +1110,29 @@ function Results({ view, roomId, conn, profile, catalogue, onLeave, onChange }) 
           )}
           {!isTimeTrial && <div className="tag" style={{ margin: "18px 0 10px" }}><span>FINAL STANDINGS</span></div>}
           {!isTimeTrial && <div className="row gap-s" style={{ flexWrap: "wrap", marginBottom: 16 }}>
-            {standings.map((p) => (
-              <div key={p.id} className="panel" style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderColor: p.place === 1 ? "var(--gold)" : "var(--line)" }}>
-                <span className="impactf" style={{ fontSize: 12, color: p.place === 1 ? "var(--gold)" : "var(--dim)" }}>{p.place ?? "—"}</span>
-                <span style={{ width: 14, height: 14, borderRadius: "50%", background: p.idColor || "var(--hot)", border: "2px solid var(--ink)", boxShadow: "0 0 0 1px var(--line)" }} />
-                <span className="impactf" style={{ fontSize: 14 }}>{p.name}{p.id === you.id ? " (you)" : ""}</span>
-              </div>
-            ))}
+            {standings.map((p) => {
+              const av = (catalogue?.avatars || []).find((a) => a.id === p.avatarId);
+              const bd = (catalogue?.borders || []).find((b) => b.id === p.borderId);
+              const frameColor = bd?.color || "var(--line)";
+              return (
+                <button key={p.id} onClick={() => p.userId && setInspect(p.userId)}
+                  className="panel" title={p.userId ? "View profile" : "Guest bot"}
+                  style={{ display: "flex", alignItems: "center", gap: 9, padding: "6px 12px",
+                    borderColor: p.place === 1 ? "var(--gold)" : "var(--line)",
+                    cursor: p.userId ? "pointer" : "default" }}>
+                  <span className="impactf" style={{ fontSize: 13, color: p.place === 1 ? "var(--gold)" : "var(--dim)" }}>{p.place ?? "—"}</span>
+                  <span style={{ width: 26, height: 26, borderRadius: "50%", display: "grid", placeItems: "center",
+                    border: `2px solid ${frameColor}`, boxShadow: `0 0 8px ${frameColor}`,
+                    background: p.idColor || "var(--ink-3)" }}>
+                    <span className="kanji" style={{ fontSize: 13 }}>{av?.glyph || "🏁"}</span>
+                  </span>
+                  <span className="impactf" style={{ fontSize: 14 }}>{p.name}{p.id === you.id ? " (you)" : ""}</span>
+                </button>
+              );
+            })}
           </div>}
 
+          {inspect && <ProfileCard userId={inspect} catalogue={catalogue} onClose={() => setInspect(null)} />}
           <div className="tag" style={{ marginBottom: 8 }}><span>{t("play.hud.finalRoster")}</span></div>
           <div className="faint" style={{ fontSize: 11, marginBottom: 8 }}>{t("play.hud.karmaHint")}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(230px,1fr))", gap: 8, flex: 1, minHeight: 0, overflowY: "auto", alignContent: "start" }}>

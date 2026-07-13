@@ -91,6 +91,260 @@ function playNoise(duration, vol = 0.2, highpass = false) {
 }
 
 export const sfx = {
+  // ============================================================
+  // THE ITEM LAYER — every power gets its own voice.
+  // Anime rule: the bigger the move, the longer the wind-up and the more
+  // layers in the payoff. An S-tier item should make you sit up.
+  // ============================================================
+
+  // --- bronze: scrappy, wet, cheap ---
+  waterbombThrow: () => { playNoise(0.06, 0.14, true); playTone("sine", 220, 0.10, 0.10); },
+  waterbombPop:   () => { playNoise(0.18, 0.34, true); playTone("sine", 130, 0.16, 0.20); },
+  puddleDrop:     () => { playTone("sine", 180, 0.12, 0.14); playNoise(0.10, 0.16, true); },
+  fizzpop:        () => {
+    playNoise(0.10, 0.12, true);
+    for (let i = 0; i < 5; i++) setTimeout(() => playTone("square", 700 + i * 190, 0.05, 0.06), i * 34);
+  },
+  sandclodThrow:  () => { playNoise(0.09, 0.22, true); playTone("triangle", 150, 0.12, 0.14); },
+  sandclodHit:    () => { playNoise(0.42, 0.40, true); playTone("sawtooth", 90, 0.30, 0.16, true); },
+
+  // --- silver: solid, confident ---
+  clusterThrow:   () => { for (let i = 0; i < 3; i++) setTimeout(() => { playNoise(0.05, 0.13, true); playTone("sine", 240 + i * 40, 0.08, 0.09); }, i * 55); },
+  soakerBlast:    () => {
+    playNoise(0.9, 0.30, true);
+    playTone("sawtooth", 300, 0.7, 0.10, true);
+  },
+  icepopFreeze:   () => {
+    playTone("sine", 1400, 0.20, 0.10);
+    setTimeout(() => playTone("sine", 1900, 0.24, 0.09), 70);
+    setTimeout(() => playTone("triangle", 2600, 0.30, 0.06), 150);
+    playNoise(0.30, 0.10, true);
+  },
+  ballBounce:     () => { playTone("sine", 420, 0.09, 0.16); playTone("sine", 640, 0.06, 0.08); },
+
+  // --- gold: heavy, dangerous ---
+  hydroLaunch:    () => {
+    playTone("sawtooth", 90, 0.26, 0.20, true);
+    playNoise(0.16, 0.26, true);
+  },
+  hydroBoom:      () => {
+    playTone("sine", 55, 0.60, 0.34);
+    playNoise(0.55, 0.46, true);
+    playTone("sawtooth", 120, 0.34, 0.18, true);
+    setTimeout(() => playNoise(0.42, 0.22, true), 130);
+  },
+  geyserArm:      () => { playTone("square", 520, 0.06, 0.07); },
+  geyserBlow:     () => {
+    // a rising column of water — pitch sweeps UP, unlike an explosion
+    playTone("sawtooth", 140, 0.55, 0.24);
+    for (let i = 0; i < 8; i++) setTimeout(() => playTone("sine", 300 + i * 220, 0.10, 0.10), i * 45);
+    playNoise(0.60, 0.34, true);
+  },
+  monsoonRoll:    () => {
+    playTone("sine", 70, 0.9, 0.22);
+    playNoise(1.2, 0.20, true);
+    setTimeout(() => { playTone("sawtooth", 95, 0.5, 0.14, true); }, 250);
+  },
+  rocketFloat:    () => {
+    playTone("sawtooth", 200, 0.5, 0.16, true);
+    for (let i = 0; i < 4; i++) setTimeout(() => playTone("square", 500 + i * 260, 0.08, 0.08), i * 60);
+  },
+
+  // --- S-TIER: the wind-up, then the sky falls in ---
+  ultimateCharge: () => {
+    // the anime wind-up: a rising whine that tells everyone something is coming
+    playTone("sawtooth", 180, 0.55, 0.14, true);
+    for (let i = 0; i < 9; i++) setTimeout(() => playTone("square", 240 + i * 150, 0.06, 0.05), i * 55);
+    playNoise(0.5, 0.08, true);
+  },
+  tsunamiRoar:    () => {
+    playTone("sine", 45, 1.6, 0.36);
+    playNoise(2.0, 0.50, true);
+    playTone("sawtooth", 85, 1.2, 0.22, true);
+    setTimeout(() => { playTone("sine", 60, 1.2, 0.26); playNoise(1.4, 0.36, true); }, 350);
+  },
+  krakenGrasp:    () => {
+    playTone("sine", 62, 0.9, 0.30);
+    playTone("sawtooth", 130, 0.7, 0.20, true);
+    for (let i = 0; i < 6; i++) setTimeout(() => playTone("triangle", 420 - i * 45, 0.16, 0.12), i * 90);
+    playNoise(1.0, 0.30, true);
+  },
+  meteorScream:   () => {
+    // the falling-shell scream, then the crater
+    playTone("sawtooth", 1600, 0.85, 0.16, true);
+    setTimeout(() => {
+      playTone("sine", 48, 0.8, 0.40);
+      playNoise(0.9, 0.55, true);
+      playTone("sawtooth", 110, 0.5, 0.22, true);
+    }, 700);
+  },
+  hypernova:      () => {
+    // pure triumph: a rising fifth, a shimmer, and a wall of light
+    playTone("triangle", 392, 0.22, 0.18);
+    setTimeout(() => playTone("triangle", 587, 0.22, 0.18), 110);
+    setTimeout(() => playTone("triangle", 784, 0.34, 0.20), 220);
+    setTimeout(() => playTone("square", 1568, 0.50, 0.10), 320);
+    setTimeout(() => { playNoise(0.7, 0.20, true); playTone("sine", 90, 0.7, 0.24); }, 300);
+  },
+
+  // --- the buffs get a voice too ---
+  shieldUp:       () => { playTone("sine", 520, 0.16, 0.14); setTimeout(() => playTone("sine", 780, 0.22, 0.12), 80); },
+  shieldBreak:    () => { playNoise(0.20, 0.30, true); playTone("square", 300, 0.14, 0.14, true); },
+  blinded:        () => { playNoise(0.7, 0.30, true); playTone("sawtooth", 120, 0.5, 0.12, true); },
+
+  // ============================================================
+  // THE MODES. Each one needs its own vocabulary — a flag capture and a pearl
+  // pickup must not sound the same, or the whole game turns to mush.
+  // ============================================================
+
+  // --- DERBY ---
+  wreckerHit: () => {
+    playTone("sawtooth", 70, 0.30, 0.30, true);
+    playNoise(0.35, 0.40, true);
+    playTone("square", 160, 0.16, 0.14, true);
+  },
+  lifeLost: () => {
+    playTone("sawtooth", 300, 0.35, 0.20, true);   // a descending, sickening drop
+    setTimeout(() => playTone("sawtooth", 180, 0.4, 0.18, true), 120);
+  },
+  eliminated: () => {
+    playTone("sine", 90, 0.9, 0.28);
+    playNoise(0.7, 0.35, true);
+    setTimeout(() => playTone("triangle", 200, 0.5, 0.14, true), 200);
+  },
+  ringClosing: () => { playTone("sine", 55, 1.2, 0.12); },
+
+  // --- CTF ---
+  flagTaken: () => {
+    playTone("triangle", 523, 0.14, 0.16);
+    setTimeout(() => playTone("triangle", 784, 0.20, 0.16), 90);
+  },
+  flagCaptured: () => {
+    // a real fanfare — this is the whole point of the mode
+    playTone("triangle", 523, 0.16, 0.20);
+    setTimeout(() => playTone("triangle", 659, 0.16, 0.20), 110);
+    setTimeout(() => playTone("triangle", 784, 0.16, 0.20), 220);
+    setTimeout(() => playTone("triangle", 1047, 0.45, 0.24), 330);
+    setTimeout(() => playNoise(0.35, 0.14, true), 330);
+  },
+  flagDropped: () => { playTone("sawtooth", 220, 0.26, 0.16, true); },
+  flagReturned: () => { playTone("sine", 660, 0.18, 0.14); setTimeout(() => playTone("sine", 880, 0.22, 0.12), 90); },
+
+  // --- SAND ARTIST ---
+  waterPour: () => { playNoise(0.10, 0.05, true); },        // a soft trickle, fired often
+  propStamp: () => { playTone("sine", 500, 0.09, 0.12); playNoise(0.06, 0.08, true); },
+  guessTick: () => { playTone("square", 700, 0.05, 0.07); },  // the 5s countdown
+  guessCorrect: () => {
+    playTone("triangle", 659, 0.14, 0.20);
+    setTimeout(() => playTone("triangle", 880, 0.14, 0.20), 100);
+    setTimeout(() => playTone("triangle", 1319, 0.40, 0.22), 200);
+  },
+  guessWrong: () => {
+    playTone("sawtooth", 200, 0.30, 0.22, true);
+    playNoise(0.45, 0.35, true);
+    setTimeout(() => playTone("sawtooth", 110, 0.45, 0.20, true), 130);
+  },
+  roundStart: () => { playTone("sine", 440, 0.16, 0.14); setTimeout(() => playTone("sine", 660, 0.22, 0.14), 110); },
+
+  // --- TAG ---
+  tagged: () => {
+    // a slap, then a rising alarm — you are now the problem
+    playNoise(0.14, 0.32, true);
+    playTone("square", 400, 0.10, 0.16);
+    setTimeout(() => { playTone("sawtooth", 260, 0.5, 0.18, true); }, 90);
+  },
+  tagPassed: () => { playTone("triangle", 880, 0.20, 0.18); },   // relief
+  itPulse: () => { playTone("sine", 180, 0.14, 0.09); },          // the ticking while IT
+
+  // --- PEARL RUSH ---
+  pearlGrab: () => { playTone("sine", 1200, 0.07, 0.10); playTone("sine", 1800, 0.05, 0.05); },
+  pearlSpill: () => {
+    playNoise(0.30, 0.26, true);
+    for (let i = 0; i < 6; i++) setTimeout(() => playTone("sine", 900 - i * 90, 0.06, 0.08), i * 45);
+  },
+  crownTaken: () => {
+    playTone("triangle", 784, 0.18, 0.18);
+    setTimeout(() => playTone("triangle", 1047, 0.30, 0.20), 120);
+  },
+
+  // --- TRACK HAZARDS ---
+  oilSlick:   () => { playTone("sine", 260, 0.5, 0.10); playNoise(0.4, 0.10, true); },
+  quicksand:  () => { playNoise(0.5, 0.22, true); playTone("sawtooth", 90, 0.5, 0.14, true); },
+  crabHit:    () => { playNoise(0.16, 0.30, true); playTone("square", 320, 0.10, 0.16); },
+  rockHit:    () => { playTone("sawtooth", 100, 0.24, 0.26, true); playNoise(0.3, 0.32, true); },
+  waveWash:   () => { playNoise(0.8, 0.30, true); playTone("sine", 120, 0.7, 0.18); },
+
+  lavaBurn: () => {
+    playNoise(0.6, 0.35, true);
+    playTone("sawtooth", 80, 0.6, 0.24, true);
+    for (let i = 0; i < 4; i++) setTimeout(() => playTone("square", 900 - i * 150, 0.08, 0.10), i * 70);
+  },
+  ashCloud: () => { playNoise(0.9, 0.28, true); playTone("sine", 140, 0.7, 0.12); },
+
+  // ---- START LIGHTS ----
+  // A low prep beep per red lamp, a tenser one on yellow, then a bright chord
+  // on green. The pitch rising across the sequence is what makes the launch
+  // feel earned instead of arbitrary.
+  lightRed: () => { playTone("sine", 300, 0.16, 0.16); },
+  lightYellow: () => { playTone("sine", 420, 0.16, 0.18); },
+  lightGreen: () => {
+    playTone("triangle", 660, 0.30, 0.20);
+    setTimeout(() => playTone("triangle", 880, 0.34, 0.18), 60);
+    setTimeout(() => playTone("square", 1320, 0.28, 0.10), 120);
+    playNoise(0.10, 0.20, true);
+  },
+
+  // ---- GAME-FEEL LAYER (threat → impact → reward) ----
+  // Threat: a tick that rises in pitch and urgency as danger closes. The
+  // anticipation phase is where the dopamine loop starts — the brain needs a
+  // rising signal to make the impact (or the dodge) land.
+  threatTick: (intensity = 0.5) => {
+    const f = 480 + intensity * 620;
+    playTone("square", f, 0.05, 0.05 + intensity * 0.07);
+  },
+  // Impact: layered transient — low thump + splash noise + a short mid crack.
+  impactThud: () => {
+    playTone("sine", 95, 0.16, 0.22);
+    playNoise(0.14, 0.30, true);
+    playTone("triangle", 320, 0.08, 0.12);
+  },
+  // The kill: a BOOM with real low end, sand-noise wash, and a sub drop.
+  crumbleBoom: () => {
+    playTone("sine", 60, 0.5, 0.30);
+    playNoise(0.5, 0.42, true);
+    playTone("sawtooth", 140, 0.25, 0.14, true);
+    setTimeout(() => playNoise(0.35, 0.18, true), 140);
+  },
+  // The attacker's reward: impact first (shared with the victim's world),
+  // then within 250ms a bright rising three-note + sparkle — confirmation
+  // arriving right inside the reward window.
+  takedownJingle: () => {
+    playTone("sine", 90, 0.14, 0.24);
+    playNoise(0.12, 0.26, true);
+    setTimeout(() => {
+      playTone("triangle", 523, 0.10, 0.13);                       // C
+      setTimeout(() => playTone("triangle", 659, 0.10, 0.13), 80); // E
+      setTimeout(() => playTone("triangle", 880, 0.22, 0.13), 160);// A
+      setTimeout(() => playTone("sine", 1760, 0.18, 0.07), 240);   // sparkle
+    }, 180);
+  },
+  // Lap flag: a whip-crack + a settling tone; the final lap gets a fanfare.
+  lapFlag: () => {
+    playNoise(0.07, 0.22, true);
+    playTone("triangle", 587, 0.16, 0.12);
+  },
+  finalFanfare: () => {
+    playNoise(0.07, 0.24, true);
+    playTone("triangle", 523, 0.11, 0.13);
+    setTimeout(() => playTone("triangle", 659, 0.11, 0.13), 100);
+    setTimeout(() => playTone("triangle", 784, 0.11, 0.13), 200);
+    setTimeout(() => playTone("square", 1046, 0.30, 0.10), 300);
+  },
+  respawnPop: () => {
+    playTone("sine", 240, 0.08, 0.14);
+    setTimeout(() => playTone("sine", 480, 0.12, 0.12), 70);
+  },
+
   // IRON FRONTIER SFX — western-fusion timbres (twangy, plucky, brassy) that
   // still keep the over-the-top anime punch on hits (slash/dash/eject/downed).
   walk: () => playTone("triangle", 108, 0.12, 0.05), // muffled boot-step on the deck

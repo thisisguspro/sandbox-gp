@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "../store/index.js";
 import { requireAuth } from "../middleware/auth.js";
-import { COSMETICS, SLOTS, LEVEL_UNLOCKS, xpForLevel } from "../config/cosmetics.js";
+import { COSMETICS, SLOTS, LEVEL_UNLOCKS, xpForLevel, isCraftable, CRAFT_COST, scrapValue } from "../config/cosmetics.js";
 import { DEFAULT_SETTINGS, WHEEL_SLOTS, VOICE_COMMAND_KEYS } from "../config/settings.js";
 import { AVATARS, BORDERS, ACHIEVEMENTS } from "../config/achievements.js";
 
@@ -23,10 +23,39 @@ profileRouter.get("/", requireAuth, async (req, res) => {
 
 // Static catalogue: all slots and all cosmetics (for the profile UI to render),
 // plus the profile-avatar/border pools and the achievement list.
+// goal #11: a visitable public card — safe subset only
+profileRouter.get("/public/:userId", requireAuth, async (req, res) => {
+  try {
+    const p = await db.getProfile(req.params.userId);
+    if (!p) return res.status(404).json({ error: "No such racer." });
+    res.json({
+      userId: req.params.userId,
+      name: p.name, level: p.level?.level ?? p.level,
+      selectedAvatar: p.selectedAvatar, selectedBorder: p.selectedBorder,
+      stats: {
+        matchesPlayed: p.stats.matchesPlayed, wins: p.stats.wins,
+        podiums: p.stats.podiums || 0, bestLapSec: p.stats.bestLapSec,
+        splashesCaused: p.stats.splashesCaused || 0, sTiers: p.stats.sTiers || 0,
+      },
+      achievementsUnlocked: (p.achievements || []).filter((a) => a.unlockedAt).length,
+    });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 profileRouter.get("/catalogue", (_req, res) => {
   res.json({
     slots: Object.values(SLOTS),
-    cosmetics: Object.values(COSMETICS),
+    // Every cosmetic carries its craft cost and scrap value, so the Locker can
+    // show them without a second round trip. Progression items report
+    // craftable:false and scrap:0 — the client greys them out and the server
+    // rejects them anyway.
+    cosmetics: Object.values(COSMETICS).map((c) => ({
+      ...c,
+      craftable: isCraftable(c),
+      craftCost: isCraftable(c) ? (CRAFT_COST[c.rarity] || 40) : null,
+      scrapValue: scrapValue(c),
+    })),
+    craftCosts: CRAFT_COST,
     ladder: LEVEL_UNLOCKS,
     avatars: Object.values(AVATARS),
     borders: Object.values(BORDERS),

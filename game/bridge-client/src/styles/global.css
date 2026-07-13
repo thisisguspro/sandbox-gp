@@ -8,25 +8,30 @@
    ============================================================ */
 
 :root {
-  /* Palette — canyon dusk, parchment flash, brass gold + southwest turquoise neon */
-  --ink:        #0a0704;   /* dusk canyon black */
-  --ink-2:      #16100a;   /* raised warm panels */
-  --ink-3:      #241a10;   /* leather / wood cards */
-  --line:       #5e3d1f;   /* worn brass / weathered wood lines */
-  --paper:      #fdf4e3;   /* aged-parchment flash */
+  /* Palette — SUNSET BOARDWALK (goal #10): deep lagoon panels, warm sand
+     paper, coral + gold + sea-glass accents. Zero purple anywhere: the old
+     magenta token now carries sun-orange, and "epic" rarity is hibiscus. */
+  --ink:        #06222d;   /* deep lagoon at dusk */
+  --ink-2:      #0b3140;   /* raised sea panels */
+  --ink-3:      #124452;   /* driftwood-teal cards */
+  --line:       #2a6b74;   /* sea-glass lines */
+  --paper:      #fef7e6;   /* warm dry sand */
   --hot:        #ff5a3c;   /* sunset coral — the hero accent */
-  --hot-deep:   #a8300f;
-  --gold:       #f2b134;   /* sunny boardwalk gold */
-  --volt:       #26e0c6;   /* electric turquoise / energy plane */
-  --violet:     #c23a7a;   /* prickly-pear magenta / outlaw undertone */
-  --dim:        #9b855f;   /* dusty tan */
-  --faint:      #5f4c33;
+  --hot-deep:   #b0361c;
+  --gold:       #f7c04a;   /* boardwalk gold */
+  --volt:       #2fe6c8;   /* lagoon turquoise */
+  --violet:     #ff9a4d;   /* SUN-ORANGE (token name is legacy — no purple) */
+  --dim:        #97bcbf;   /* sea-mist */
+  --faint:      #4a7378;
 
   /* Rarity colors */
-  --r-common:    #b3a488;
+  --r-common:    #b9c4b4;
   --r-rare:      #2bb8c8;
-  --r-epic:      #b25ad8;
+  --r-epic:      #ff5fa2;  /* hibiscus — was purple */
   --r-legendary: #ffc23d;
+  /* MYTHIC — loyalty only. Cannot be bought, crafted, or dropped. It should
+     look like it doesn't belong in the same shop as everything else. */
+  --r-mythic:    #b5f2ff;
 
   --display: "Bebas Neue", sans-serif;
   --impact:  "Russo One", sans-serif;
@@ -37,7 +42,11 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
-  background: var(--ink);
+  /* sunset over the water: a low sun, a warm horizon band, then the lagoon */
+  background:
+    radial-gradient(640px 320px at 76% -90px, rgba(255, 154, 77, 0.42), transparent 70%),
+    radial-gradient(1200px 200px at 50% 8%, rgba(255, 90, 60, 0.14), transparent 75%),
+    linear-gradient(180deg, #0d3a4a 0%, var(--ink) 38%);
   color: var(--paper);
   font-family: var(--body);
   overflow: hidden; /* the app manages its own scroll regions */
@@ -267,3 +276,75 @@ button { font-family: var(--body); cursor: pointer; border: none; background: no
 
 /* SANDBOX GP race HUD */
 @keyframes gpPulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+
+/* ---- game-feel layer (threat / takedown) ---- */
+@keyframes threatPulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+@keyframes takedownIn {
+  0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+  60% { transform: scale(1.12) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+
+/* ---- MYTHIC AURA: loyalty rewards are supposed to feel unreasonable ---- */
+@keyframes mythicSweep {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes mythicPulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(181,242,255,0.55), inset 0 0 12px rgba(181,242,255,0.18); }
+  50%      { box-shadow: 0 0 34px rgba(255,95,162,0.85), inset 0 0 22px rgba(255,180,60,0.35); }
+}
+@keyframes mythicFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-4px) rotate(0.6deg); }
+}
+.mythic {
+  position: relative;
+  border: 2px solid transparent !important;
+  border-radius: 12px;
+  background:
+    linear-gradient(var(--ink-2), var(--ink-2)) padding-box,
+    linear-gradient(90deg, #b5f2ff, #ff5fa2, #ffb020, #2fe6c8, #b5f2ff) border-box;
+  background-size: 200% 200%;
+  animation: mythicSweep 3.5s linear infinite, mythicPulse 2.4s ease-in-out infinite, mythicFloat 4s ease-in-out infinite;
+}
+.mythic::after {
+  content: "";
+  position: absolute; inset: -40%;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.16) 0%, transparent 60%);
+  animation: mythicFloat 3s ease-in-out infinite reverse;
+}
+.mythic-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  font-size: 9px;
+  color: #06222d;
+  background: linear-gradient(90deg, #b5f2ff, #ff5fa2, #ffb020, #b5f2ff);
+  background-size: 200% 200%;
+  animation: mythicSweep 2.2s linear infinite;
+  text-shadow: none;
+}
+
+/* ---- the anime item layer ---- */
+@keyframes ultSlam {
+  0%   { transform: translate(-50%, -50%) scale(2.4) rotate(-10deg); opacity: 0; }
+  55%  { transform: translate(-50%, -50%) scale(0.92) rotate(2deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes ultFlash {
+  0%   { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+@keyframes blindShudder {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(-3px, 2px); }
+  75%      { transform: translate(3px, -2px); }
+}

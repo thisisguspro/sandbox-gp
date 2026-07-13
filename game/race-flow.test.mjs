@@ -33,7 +33,7 @@ async function main() {
   const phases = new Set();
   socket.on("state", (msg) => { view = msg.view; if (view?.phase) phases.add(view.phase); });
 
-  const created = await new Promise((r) => socket.emit("create_room", { config: { isPublic: false, laps: 1, finishTimeoutSec: 4 }, name: "TestHost" }, r));
+  const created = await new Promise((r) => socket.emit("create_room", { config: { isPublic: false, laps: 1, finishTimeoutSec: 4, trackId: "testloop" }, name: "TestHost" }, r));
   if (!created?.roomId) return no(`create_room failed: ${JSON.stringify(created)}`);
   ok(`room created (${created.roomId})`);
   const roomId = created.roomId;
@@ -58,7 +58,15 @@ async function main() {
     ? ok("input ignored during 3-2-1 freeze") : no("car moved during freeze!");
 
   // Past the freeze: throttle=1 must move the HUMAN car authoritatively.
-  await new Promise((r) => setTimeout(r, 2600));
+  // Wait for the SERVER's green light rather than a hardcoded sleep — the
+  // pre-race flythrough made the countdown 11s and every fixed wait broke.
+  await new Promise((resolve) => {
+    const t0 = Date.now();
+    const iv = setInterval(() => {
+      const fl = view?.startFreezeLeft ?? 99;
+      if (fl <= 0 || Date.now() - t0 > 20000) { clearInterval(iv); resolve(); }
+    }, 100);
+  });
   socket.emit("race_input", { roomId, throttle: 1, steer: 0 });
   const m0 = meBefore();
   await new Promise((r) => setTimeout(r, 1500));
@@ -103,7 +111,7 @@ async function main() {
     const s2 = await connect();
     let v2 = null;
     s2.on("state", (msg) => { v2 = msg.view; });
-    const room2 = await new Promise((r) => s2.emit("create_room", { config: { isPublic: false, laps: 1, finishTimeoutSec: 4 }, name: "SoloHost" }, r));
+    const room2 = await new Promise((r) => s2.emit("create_room", { config: { isPublic: false, laps: 1, finishTimeoutSec: 4, trackId: "testloop" }, name: "SoloHost" }, r));
     if (!room2?.roomId) { no("solo create_room failed"); }
     else {
       await new Promise((r) => setTimeout(r, 300));

@@ -114,6 +114,33 @@ playerRouter.post("/ad-reward/claim", requireAuth, async (req, res) => {
 });
 
 // Redeem a code. Server validates existence + single-use-per-account, then grants.
+// The Time Attack board. The client has been calling this since the mode was
+// added; the route never existed, so the fetch failed silently and the board
+// rendered empty. A ranked mode with no ranking is a race against nobody.
+playerRouter.get("/leaderboard/laps", requireAuth, async (req, res) => {
+  try {
+    res.json(await db.getLapBoard(req.query.trackId || null));
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// ---- SEA GLASS: scrap and craft ----
+playerRouter.post("/scrap", requireAuth, async (req, res) => {
+  try { res.json({ ok: true, ...(await db.scrapCosmetic(req.userId, req.body?.cosmeticId)) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+playerRouter.post("/craft", requireAuth, async (req, res) => {
+  try { res.json({ ok: true, ...(await db.craftCosmetic(req.userId, req.body?.cosmeticId)) }); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// goal #15: equip racing perks (max 2, level-gated)
+playerRouter.post("/perks", requireAuth, async (req, res) => {
+  try {
+    const equipped = await db.setEquippedPerks(req.userId, req.body?.equipped || []);
+    res.json({ ok: true, equipped });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 playerRouter.post("/redeem", requireAuth, async (req, res) => {
   const code = String(req.body?.code || "").trim().toUpperCase();
   if (!code) return res.status(400).json({ error: "Enter a code." });

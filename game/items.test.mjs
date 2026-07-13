@@ -9,15 +9,23 @@ let pass = 0, fail = 0;
 const ok = (m) => { console.log(`  \x1b[32m✓\x1b[0m ${m}`); pass++; };
 const no = (m) => { console.log(`  \x1b[31m✗\x1b[0m ${m}`); fail++; };
 const DT = 0.05;
+
+// Wait out the start freeze, whatever it currently is. Tests used to hardcode
+// "tick 3.6s" against a 3s countdown; the pre-race flythrough made it 11s and
+// every one of them started grabbing boxes while the grid was still frozen.
+function clearCountdown(e) {
+  for (let s = 0; s < 30 && (e.startFreezeUntil - e.now) > 0; s += DT) e.tick(DT);
+  e.tick(DT);
+}
 const run = (e, sec) => { for (let i = 0; i < sec / DT; i++) e.tick(DT); };
 
 // Standard rig: 2 humans on the centerline, `gap` meters apart, past freeze.
 function rig(gap = 20, n = 2) {
-  const e = new RaceEngine({ config: { seed: 5 } });
+  const e = new RaceEngine({ config: { seed: 5, trackId: "sandcastle" } });   // pin: no trackId now = RANDOM map
   const ids = [];
   for (let i = 0; i < n; i++) ids.push(e.addPlayer(`P${i}`, { userId: `u${i}` }));
   e.start({ force: true });
-  run(e, 3.2);
+  clearCountdown(e);
   const ps = ids.map((id) => e.players.get(id));
   // place along centerline: P0 behind, P1 ahead by gap, etc.
   let s = 30;
@@ -180,7 +188,7 @@ function cruise(e, p, id, sec) {
 
 // ---- bots eventually fire what they pick up ----
 {
-  const e = new RaceEngine({ config: { seed: 11 } });
+  const e = new RaceEngine({ config: { seed: 11, trackId: "sandcastle" } });
   for (let i = 0; i < 4; i++) e.addPlayer(`Bot${i}`, { isBot: true, botTier: "pilot" });
   e.start({ force: true });
   let used = 0;

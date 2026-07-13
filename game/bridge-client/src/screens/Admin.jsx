@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import * as api from "../api/backend.js";
-import PilotPreview from "../components/PilotPreview.jsx";
+import KartPreview from "../components/KartPreview.jsx";
 import { fmtDateTime, toCentralInput, centralInputToISO } from "../lib/time.js";
 
 // Admin Panel. Only mounted for accounts with an adminRole. Talks to the
@@ -887,7 +887,7 @@ function ReversalsTab() {
       else if (r.grantCosmetics?.length) parts.push(r.grantCosmetics.join(", "));
       if (r.grantNameChanges > 0) parts.push(`${r.grantNameChanges} name-change credit${r.grantNameChanges > 1 ? "s" : ""}`);
     } else if (r.prisms) {
-      parts.push(`${r.prisms} Gold Nuggets`);
+      parts.push(`${r.prisms} Shells`);
     }
     return parts.length ? parts.join(" · ") : "—";
   };
@@ -1290,7 +1290,7 @@ function DevTab({ meId }) {
       <div style={devCard}>
         <div style={devHead}><span className="kanji" style={{ color: "var(--gold)" }}>▸</span> Currency</div>
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          {[["CREDITS", 1000, "+1,000 Silver"], ["CREDITS", 10000, "+10,000 Silver"], ["PREMIUM", 10, "+10 Gold"], ["PREMIUM", 100, "+100 Gold"]].map(([currency, amount, label]) => (
+          {[["CREDITS", 1000, "+1,000 Sea Glass"], ["CREDITS", 10000, "+10,000 Sea Glass"], ["PREMIUM", 10, "+10 Gold"], ["PREMIUM", 100, "+100 Gold"]].map(([currency, amount, label]) => (
             <button key={label} className="btn" style={btn} disabled={busy}
               onClick={() => run(() => api.adminGrant(meId, { currency, amount }), `Added ${label} to you.`)}>{label}</button>
           ))}
@@ -1351,7 +1351,7 @@ function CosmeticLab({ catalogue }) {
   return (
     <div className="row" style={{ gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
       <div style={{ width: 240 }}>
-        <PilotPreview loadout={loadout} catalogue={catalogue} showLabel={false} />
+        <KartPreview loadout={previewLoadout || {}} height={240} />
       </div>
       <div className="col gap-s" style={{ flex: 1, minWidth: 260 }}>
         <div className="row" style={{ gap: 8 }}>

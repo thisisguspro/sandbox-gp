@@ -14,7 +14,6 @@ export default function NavRail({ screen, setScreen, user, profile, catalogue, o
     { id: "perks", label: t("nav.perks") },
     { id: "locker", label: t("nav.locker") },
     { id: "shop", label: t("nav.shop") },
-    { id: "wheels", label: t("nav.wheels") },
     { id: "settings", label: t("nav.settings") },
   ];
   if (user?.adminRole) items.push({ id: "admin", label: t("nav.admin") });

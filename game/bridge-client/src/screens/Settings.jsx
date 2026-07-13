@@ -77,9 +77,10 @@ export default function Settings({ user, profile, onAccountChange, onGoShop, inM
 
         {/* controls */}
         <div style={{ padding: "32px 40px", overflowY: "auto" }}>
-          {section === "account" && (
+          {section === "account" && (<>
             <AccountPanel user={user} profile={profile} onAccountChange={onAccountChange} onGoShop={onGoShop} />
-          )}
+            {!user?.adminRole && <AdminClaim onAccountChange={onAccountChange} />}
+          </>)}
           {section === "language" && (
             <LanguagePanel t={t} lang={lang} locales={locales} setLang={setLang} />
           )}
@@ -138,6 +139,32 @@ export default function Settings({ user, profile, onAccountChange, onGoShop, inM
 
 // Account panel: paid name change (spends a credit bought in the shop) and the
 // streamer-mode toggle. Both read live state from the account/profile and call
+// Operator access: promote this signed-in account to admin with the server's
+// ADMIN_KEY (set in the deploy environment). Hidden once you're an admin;
+// harmless (404s) on servers where no key is configured.
+function AdminClaim({ onAccountChange }) {
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState(null);
+  const claim = async () => {
+    setMsg(null);
+    try {
+      const res = await api.claimAdmin(key);
+      if (res.ok) { setMsg("✓ Admin access granted — reloading…"); setTimeout(() => window.location.reload(), 900); }
+    } catch (e) { setMsg(e.message || "Claim failed."); }
+  };
+  return (
+    <div className="row" style={{ justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid var(--line)", gap: 10 }}>
+      <span style={{ fontWeight: 600 }}>ADMIN ACCESS</span>
+      <div className="row gap-s" style={{ flex: 1, maxWidth: 380 }}>
+        <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Admin key"
+          style={{ flex: 1, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "rgba(0,0,0,0.25)", color: "var(--paper)" }} />
+        <button className="btn" onClick={claim} disabled={!key}>CLAIM</button>
+      </div>
+      {msg && <span className="dim" style={{ fontSize: 12 }}>{msg}</span>}
+    </div>
+  );
+}
+
 // onAccountChange to refresh the app's user + profile after a change.
 function AccountPanel({ user, profile, onAccountChange, onGoShop }) {
   const { t } = useI18n();
