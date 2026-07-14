@@ -1,0 +1,463 @@
+/* ============================================================
+   SANDBOX GP design system.
+   Direction: a SUNSET BOARDWALK title card — beach kart mayhem at golden hour.
+   Loud, kinetic, high-contrast toy-commercial energy. Tall poster caps (Bebas),
+   chunky impact (Russo One), playful flourishes (Reggae One), data in Rajdhani.
+   Signature motifs: diagonal SPEED LINES, radial IMPACT bursts on actions, and
+   a coral-sunset accent over sunny gold + true beach turquoise (water only).
+   ============================================================ */
+
+:root {
+  /* ==========================================================================
+     PALETTE — HIGH NOON ON THE BEACH.
+     ==========================================================================
+     What was here was a DARK interface: near-black teal panels (#06222d) over a
+     dusk gradient. Measured on the real menu, 35% of every screen was that colour.
+     It looked like a moody underwater game — not a bright, sunny kart racer you
+     play in a browser tab on your lunch break.
+     
+     This is daylight: sky above, hot sand below, everything else built out of the
+     things you'd find on a beach. The token NAMES are unchanged (--ink, --paper
+     and so on are used in a hundred places) — only what they mean.
+     ========================================================================== */
+
+  /* surfaces: sand, from bleached to wet-packed */
+  --ink:        #fff3dc;   /* the page: dry, sun-bleached sand */
+  --ink-2:      #ffffff;   /* raised cards: a fresh beach towel */
+  --ink-3:      #ffe9c4;   /* recessed panels: sand in shade */
+  --line:       #e0c08a;   /* the line where wet sand meets dry */
+
+  /* ink on sand: driftwood brown, not white-on-black */
+  --paper:      #4a3722;   /* the TEXT colour now — dark, warm, readable */
+  --dim:        #8a7355;   /* softer driftwood */
+  --faint:      #a89170;   /* faintest — still legible on a white card. It used to
+                              be a near-white sand tone, which made perfect sense
+                              against near-black panels and vanished entirely the
+                              moment the panels turned white. */
+
+  /* the accents: a beach umbrella's worth of colour */
+  --hot:        #ff5a3c;   /* sunset coral — the hero accent, unchanged */
+  --hot-deep:   #d13d22;
+  --gold:       #f5a623;   /* deeper, so it reads on white */
+  --volt:       #00a8a0;   /* lagoon turquoise, darkened for contrast on sand */
+  --violet:     #ff8c42;   /* sun-orange (legacy token name, no purple anywhere) */
+  --sky:        #7ec8e8;   /* the sky, for accents that want to be cool */
+
+  /* Rarity colors — all darkened enough to read against a white card */
+  --r-common:    #9aa88c;
+  --r-rare:      #1a8fa8;
+  --r-epic:      #e0407f;  /* hibiscus */
+  --r-legendary: #e09a1a;
+  --r-mythic:    #00b3c8;
+
+  --display: "Bebas Neue", sans-serif;
+  --impact:  "Russo One", sans-serif;
+  --kanji:   "Reggae One", system-ui, sans-serif;
+  --body:    "Rajdhani", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  /* ==========================================================================
+     THE BEACH, FROM ABOVE THE WATERLINE.
+     ==========================================================================
+     Sky at the top, sea below it, then the sand you're standing on. A sun in the
+     corner. The old background was a DUSK gradient over near-black teal, which is
+     a beautiful colour and completely the wrong feeling for a bright, silly,
+     summer kart game.
+     ========================================================================== */
+  background:
+    /* the sun, top right */
+    radial-gradient(420px 420px at 88% -60px, rgba(255, 236, 170, 0.95), rgba(255, 214, 120, 0.45) 42%, transparent 72%),
+    /* a haze on the horizon */
+    radial-gradient(1400px 260px at 50% 30%, rgba(255, 255, 255, 0.55), transparent 70%),
+    /* sky -> sea -> wet sand -> dry sand */
+    linear-gradient(
+      180deg,
+      #8fd3ef 0%,      /* sky */
+      #b8e4f2 18%,     /* haze */
+      #4bb8c4 28%,     /* the sea */
+      #7fd0cc 33%,     /* shallows */
+      #e8d5a8 38%,     /* wet, packed sand */
+      var(--ink) 52%   /* dry sand, and the rest of the page */
+    );
+  background-attachment: fixed;
+  color: var(--paper);
+  font-family: var(--body);
+  overflow: hidden; /* the app manages its own scroll regions */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A GRAIN of sand over everything. It's what stops a flat CSS gradient from
+   looking like a flat CSS gradient. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.35;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(140, 110, 70, 0.10) 0.5px, transparent 0.6px),
+    radial-gradient(circle at 70% 60%, rgba(140, 110, 70, 0.08) 0.5px, transparent 0.6px),
+    radial-gradient(circle at 45% 80%, rgba(255, 255, 255, 0.14) 0.5px, transparent 0.6px);
+  background-size: 7px 7px, 11px 11px, 9px 9px;
+}
+#root { position: relative; z-index: 1; }
+
+button { font-family: var(--body); cursor: pointer; border: none; background: none; color: inherit; }
+::selection { background: var(--hot); color: #fff; }
+
+/* ---- scrollbars (kept on-theme) ---- */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--ink-2); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--hot-deep); }
+
+/* ============================================================
+   SIGNATURE 1 — diagonal speed lines (ambient motion)
+   A full-bleed layer of streaking lines that drift, used behind heroes.
+   ============================================================ */
+.speedlines {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0;
+  opacity: 0.5;
+  background:
+    repeating-linear-gradient(
+      115deg,
+      transparent 0px,
+      transparent 22px,
+      rgba(255,255,255,0.035) 22px,
+      rgba(255,255,255,0.035) 24px,
+      transparent 24px,
+      transparent 46px
+    );
+  -webkit-mask-image: radial-gradient(120% 80% at 80% 20%, #000 0%, transparent 75%);
+          mask-image: radial-gradient(120% 80% at 80% 20%, #000 0%, transparent 75%);
+  animation: speeddrift 8s linear infinite;
+}
+.speedlines.hot {
+  background:
+    repeating-linear-gradient(
+      115deg,
+      transparent 0px, transparent 20px,
+      rgba(255,77,28,0.16) 20px, rgba(255,77,28,0.16) 23px,
+      transparent 23px, transparent 44px
+    );
+}
+@keyframes speeddrift { from { background-position: 0 0; } to { background-position: 200px 0; } }
+
+/* ============================================================
+   SIGNATURE 2 — impact burst (radial action flash)
+   Pop this on confirms/level-ups/eliminations. Self-cleaning via animation.
+   ============================================================ */
+.impact-burst {
+  position: absolute; left: 50%; top: 50%; width: 10px; height: 10px;
+  transform: translate(-50%,-50%); pointer-events: none; z-index: 60;
+}
+.impact-burst::before {
+  content: ""; position: absolute; inset: -150px;
+  background: radial-gradient(circle, rgba(255,255,255,1) 0%, rgba(255,77,28,0.72) 15%, transparent 65%);
+  animation: burstflash 0.45s ease-out forwards;
+}
+.impact-burst::after {
+  content: ""; position: absolute; inset: -80px; border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, rgba(255,255,255,0.85) 0deg 3deg, transparent 3deg 11deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 38%, #000 40%, #000 52%, transparent 58%);
+          mask-image: radial-gradient(circle, transparent 38%, #000 40%, #000 52%, transparent 58%);
+  animation: burstring 0.5s cubic-bezier(.2,.7,.3,1) forwards;
+}
+@keyframes burstflash { 0% { opacity: 0; transform: scale(0.4); } 25% { opacity: 1; } 100% { opacity: 0; transform: scale(1.1); } }
+@keyframes burstring  { 0% { opacity: 0; transform: scale(0.2) rotate(0deg); } 30% { opacity: 1; } 100% { opacity: 0; transform: scale(1.6) rotate(40deg); } }
+
+/* ============================================================
+   Shared structural bits
+   ============================================================ */
+.kanji { font-family: var(--kanji); }
+.display { font-family: var(--display); letter-spacing: 0.04em; color: inherit; }
+.impactf { font-family: var(--impact); }
+
+/* Angular clipped panel — the manga-panel shape used everywhere */
+/* ============================================================
+   PANELS — a beach towel on hot sand.
+   
+   These were dark slabs with black shadows, and the "textures" section below
+   them was literally called WESTERN MOTIFS: .wood-panel, .leather-panel and
+   .wanted-poster, left over from the gunslinger game this was forked from. That
+   chrome was still styling every menu in a beach kart racer.
+   ============================================================ */
+.panel {
+  background: var(--ink-2);
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  box-shadow:
+    0 2px 0 rgba(224, 192, 138, 0.6),        /* a crisp bottom edge, like paper on sand */
+    0 10px 26px rgba(120, 90, 50, 0.16);     /* a soft, WARM shadow — never black */
+  position: relative;
+}
+.panel-hot {
+  border-color: var(--hot);
+  box-shadow:
+    0 2px 0 rgba(209, 61, 34, 0.35),
+    0 10px 30px rgba(255, 90, 60, 0.22);
+}
+
+/* Diagonal label tag (eyebrow) */
+.tag {
+  display: inline-block; font-family: var(--impact); font-size: 11px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: #fff; background: var(--hot);
+  padding: 3px 12px 3px 10px; transform: skewX(-12deg);
+  border-radius: 3px;
+}
+.tag > span { display: inline-block; transform: skewX(12deg); }
+
+/* ============================================================
+   BUTTONS — chunky, sun-faded plastic. A beach toy, not a HUD widget.
+   ============================================================ */
+.btn {
+  font-family: var(--impact); font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase;
+  padding: 13px 26px;
+  color: #fff;
+  background: linear-gradient(180deg, #ff7a5e 0%, var(--hot) 55%, #e8492e 100%);
+  border: none;
+  border-radius: 12px;
+  /* the 3D lip that makes a button feel PRESSABLE */
+  box-shadow:
+    0 4px 0 var(--hot-deep),
+    0 8px 18px rgba(209, 61, 34, 0.32);
+  transition: transform .08s ease, box-shadow .08s ease, filter .12s ease;
+}
+.btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 0 var(--hot-deep), 0 12px 24px rgba(209, 61, 34, 0.4);
+  filter: brightness(1.06);
+}
+.btn:active {
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 var(--hot-deep), 0 3px 8px rgba(209, 61, 34, 0.3);
+}
+.btn-hot { /* the default IS hot now */ }
+
+/* the quiet button: a pale shell */
+.btn-ghost {
+  background: linear-gradient(180deg, #ffffff 0%, #fff3dc 100%);
+  color: var(--paper);
+  box-shadow:
+    0 4px 0 var(--line),
+    0 8px 16px rgba(120, 90, 50, 0.14);
+}
+.btn-ghost:hover { box-shadow: 0 6px 0 var(--line), 0 12px 22px rgba(120, 90, 50, 0.2); }
+.btn-ghost:active { box-shadow: 0 1px 0 var(--line), 0 2px 6px rgba(120, 90, 50, 0.14); }
+
+.btn:disabled {
+  opacity: 0.45; cursor: not-allowed; transform: none;
+  box-shadow: 0 2px 0 rgba(0,0,0,0.12);
+  filter: grayscale(0.4);
+}
+
+/* Focus visibility (a11y floor) */
+:focus-visible { outline: 3px solid var(--volt); outline-offset: 3px; }
+
+/* ============================================================
+   SURFACES — all three of these used to be the western set.
+   Same class names (they're used everywhere), beach materials.
+   ============================================================ */
+
+/* was .wood-panel — now bleached BOARDWALK planks */
+.wood-panel {
+  background:
+    repeating-linear-gradient(
+      90deg,
+      #f7e3bd 0px, #f7e3bd 26px,
+      #e8cf9f 26px, #e8cf9f 28px
+    );
+  border: 2px solid var(--line);
+  border-radius: 10px;
+  box-shadow: inset 0 2px 8px rgba(180, 140, 90, 0.18);
+}
+
+/* was .leather-panel — now a beach TOWEL: soft, striped, sitting on the sand */
+.leather-panel {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.85), rgba(255,243,220,0.92)),
+    repeating-linear-gradient(
+      -45deg,
+      rgba(255, 90, 60, 0.10) 0px, rgba(255, 90, 60, 0.10) 12px,
+      transparent 12px, transparent 24px
+    );
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  box-shadow:
+    0 2px 0 rgba(224, 192, 138, 0.6),
+    0 10px 28px rgba(120, 90, 50, 0.18);
+}
+
+/* was .wanted-poster — now a sun-bleached BEACH SIGN, nailed to a post */
+.wanted-poster {
+  background: linear-gradient(180deg, #fffdf6 0%, #fff3dc 100%);
+  color: var(--paper);
+  border: 3px solid var(--line);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 0 20px rgba(224, 192, 138, 0.35),
+    0 6px 20px rgba(120, 90, 50, 0.2);
+  position: relative;
+}
+
+.wanted-poster::after {
+  content: "";
+  position: absolute;
+  top: 4px; bottom: 4px; left: 4px; right: 4px;
+  border: 1px dashed rgba(94, 61, 31, 0.5);
+  pointer-events: none;
+}
+
+.brass-rivet {
+  width: 8px; height: 8px;
+  background: radial-gradient(circle at 30% 30%, #fff0a8 0%, var(--gold) 40%, #8a641c 100%);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.8), inset 0 -1px 2px rgba(0,0,0,0.5);
+  position: absolute;
+}
+
+.branded-text {
+  color: var(--ink);
+  text-shadow: 0 1px 0 rgba(255,255,255,0.1), 0 -1px 2px rgba(0,0,0,0.8);
+}
+
+.saloon-divider {
+  height: 4px;
+  background: linear-gradient(90deg, transparent, var(--line), transparent);
+  margin: 16px 0;
+  position: relative;
+}
+.saloon-divider::before {
+  content: "★";
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--gold);
+  font-size: 14px;
+  text-shadow: 0 0 5px rgba(255, 194, 61, 0.5);
+}
+
+/* Lobby layout: crew list + standing-by sidebar. Sidebar can shrink, then
+   stacks below and the whole board scrolls once the viewport gets too narrow. */
+.lobby-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(260px, 26vw, 340px);
+  gap: 24px;
+  height: 100%;
+  overflow: hidden;
+}
+@media (max-width: 860px) {
+  .lobby-grid { grid-template-columns: 1fr; overflow-y: auto; }
+}
+
+/* Reduced motion respect (OS preference) */
+@media (prefers-reduced-motion: reduce) {
+  .speedlines, .impact-burst::before, .impact-burst::after { animation: none; }
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+/* Reduced motion (in-game Accessibility setting — mirrors the media query) */
+.reduced-motion .speedlines,
+.reduced-motion .impact-burst::before,
+.reduced-motion .impact-burst::after { animation: none; }
+.reduced-motion * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+
+/* High contrast (in-game Accessibility setting): white borders + brighter text */
+.hc { --line: #ffffff; --dim: #ececf4; --faint: #d6d6e6; }
+.hc .btn, .hc .tag, .hc input, .hc select { border-color: #ffffff; }
+.hc :focus-visible { outline-width: 4px; }
+
+/* Nav rail scrollable items: allow overflow to scroll but keep the bar hidden
+   so tall rails (many tabs) never clip Options/Admin on short viewports. */
+.nav-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.nav-scroll::-webkit-scrollbar { width: 0; height: 0; }
+@keyframes navChevBounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 3px); } }
+.nav-scroll-chev { animation: navChevBounce 1.15s ease-in-out infinite; }
+
+/* utility */
+.row { display: flex; align-items: center; }
+.col { display: flex; flex-direction: column; }
+.gap-s { gap: 8px; } .gap-m { gap: 16px; } .gap-l { gap: 28px; }
+.grow { flex: 1; }
+.center { align-items: center; justify-content: center; }
+.dim { color: var(--dim); }
+.faint { color: var(--faint); }
+
+/* SANDBOX GP race HUD */
+@keyframes gpPulse { from { transform: scale(1); } to { transform: scale(1.06); } }
+
+/* ---- game-feel layer (threat / takedown) ---- */
+@keyframes threatPulse {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+@keyframes takedownIn {
+  0% { transform: scale(0.4) rotate(-8deg); opacity: 0; }
+  60% { transform: scale(1.12) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+
+
+/* ---- MYTHIC AURA: loyalty rewards are supposed to feel unreasonable ---- */
+@keyframes mythicSweep {
+  0%   { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+@keyframes mythicPulse {
+  0%, 100% { box-shadow: 0 0 14px rgba(181,242,255,0.55), inset 0 0 12px rgba(181,242,255,0.18); }
+  50%      { box-shadow: 0 0 34px rgba(255,95,162,0.85), inset 0 0 22px rgba(255,180,60,0.35); }
+}
+@keyframes mythicFloat {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-4px) rotate(0.6deg); }
+}
+.mythic {
+  position: relative;
+  border: 2px solid transparent !important;
+  border-radius: 12px;
+  background:
+    linear-gradient(var(--ink-2), var(--ink-2)) padding-box,
+    linear-gradient(90deg, #b5f2ff, #ff5fa2, #ffb020, #2fe6c8, #b5f2ff) border-box;
+  background-size: 200% 200%;
+  animation: mythicSweep 3.5s linear infinite, mythicPulse 2.4s ease-in-out infinite, mythicFloat 4s ease-in-out infinite;
+}
+.mythic::after {
+  content: "";
+  position: absolute; inset: -40%;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 50%, rgba(255,255,255,0.16) 0%, transparent 60%);
+  animation: mythicFloat 3s ease-in-out infinite reverse;
+}
+.mythic-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  font-size: 9px;
+  color: #06222d;
+  background: linear-gradient(90deg, #b5f2ff, #ff5fa2, #ffb020, #b5f2ff);
+  background-size: 200% 200%;
+  animation: mythicSweep 2.2s linear infinite;
+  text-shadow: none;
+}
+
+/* ---- the anime item layer ---- */
+@keyframes ultSlam {
+  0%   { transform: translate(-50%, -50%) scale(2.4) rotate(-10deg); opacity: 0; }
+  55%  { transform: translate(-50%, -50%) scale(0.92) rotate(2deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1) rotate(0deg); opacity: 1; }
+}
+@keyframes ultFlash {
+  0%   { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+@keyframes blindShudder {
+  0%, 100% { transform: translate(0, 0); }
+  25%      { transform: translate(-3px, 2px); }
+  75%      { transform: translate(3px, -2px); }
+}
