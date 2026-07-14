@@ -1,0 +1,17 @@
+{
+  "name": "bridge-gameserver",
+  "version": "24.0.0",
+  "description": "Project BRIDGE — authoritative real-time game server",
+  "type": "module",
+  "main": "src/net/server.js",
+  "scripts": {
+    "start": "node src/net/server.js",
+    "dev": "node --watch src/net/server.js",
+    "test": "node sim.test.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.3",
+    "socket.io": "^4.7.5",
+    "socket.io-client": "^4.8.3"
+  }
+}
