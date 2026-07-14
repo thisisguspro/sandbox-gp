@@ -17,17 +17,36 @@ export function buildWorld(scene, track) {
   // 2km circuit — it's the orientation landmark, it must never vanish.
   scene.fog = new THREE.Fog(P.skyBottom, 160, 560);
 
-  // --- light ---
-  const hemi = new THREE.HemisphereLight(P.ambient, P.sandLight, 0.95);
+  // --- LIGHT ---
+  //
+  // What was here made everything look like a washed-out beige photocopy:
+  //
+  //   • ambient at 0.95 — so strong it drowned the sun and killed every shadow
+  //     and every bit of shape. Nothing had a lit side and a dark side.
+  //   • the sun's shadow camera was a fixed 110-unit box at the WORLD ORIGIN. The
+  //     track is 400 units across, so the moment you drove away from the middle
+  //     your kart cast no shadow at all — it just floated on the sand.
+  //
+  // Ambient is now a fill, not a flood. The shadow camera FOLLOWS THE PLAYER
+  // (see updateSunShadow, called each frame), so you always have a shadow under
+  // you — which is the single biggest thing that makes a 3D object look like it's
+  // actually ON the ground rather than pasted over it.
+  const hemi = new THREE.HemisphereLight(P.ambient, P.sandLight, 0.42);
   scene.add(hemi);
-  const sun = new THREE.DirectionalLight(P.sunlight, 2.1);
+
+  const sun = new THREE.DirectionalLight(P.sunlight, 2.4);
   sun.position.set(60, 90, 30);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  const S = 110;
-  Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 10, far: 260 });
-  sun.shadow.bias = -0.0004;
+  // a TIGHT box that travels with you: crisp shadows instead of a blurry 110-unit
+  // smear that only worked at the origin
+  const S = 46;
+  Object.assign(sun.shadow.camera, { left: -S, right: S, top: S, bottom: -S, near: 1, far: 220 });
+  sun.shadow.bias = -0.0008;
+  sun.shadow.normalBias = 0.02;
   scene.add(sun);
+  scene.add(sun.target);
+  scene.userData.sun = sun;
 
   // --- the beach ---
   const sandTex = makeSandTexture();
@@ -111,9 +130,110 @@ export function buildWorld(scene, track) {
     deco.add(dune);
   }
 
-  // lollipop palms scattered around the loop
-  const palmSpots = [[62, 8], [44, -46], [-58, 36], [-30, 58], [-64, -34], [16, 70], [70, 40]];
-  for (const [x, z] of palmSpots) deco.add(palm()).children.at(-1).position.set(x, 0, z);
+  // ---- ROADSIDE DRESSING ----
+  //
+  // There used to be SEVEN palm trees, hand-placed in a 70-unit box, on a track
+  // 400 units across. Drive anywhere but that one corner and the world was an
+  // empty beige plain — which is exactly what it looked like.
+  //
+  // Now: scatter dressing ALONG THE TRACK, on both sides, all the way round. This
+  // is the single biggest thing that makes a circuit feel like a place rather than
+  // a stripe in a void — you get a sense of speed from things flicking past, and
+  // corners become recognisable because they have landmarks.
+  {
+    const n = track.samples.length;
+    const rnd = (() => { let s = 20250713; return () => (s = (s * 16807) % 2147483647) / 2147483647; })();
+
+    for (let i = 0; i < n; i += 5) {
+      const p = track.at(i);
+      if (p.gap) continue;
+
+      for (const side of [-1, 1]) {
+        if (rnd() > 0.72) continue;              // gaps, so it isn't a corridor
+
+        // out beyond the shoulder, at a varying distance so it doesn't read as a fence
+        const off = (track.width / 2) + 9 + rnd() * 26;
+        const x = p.x + (-p.tz) * off * side;
+        const z = p.z + (p.tx) * off * side;
+        const y = p.y || 0;
+
+        const roll = rnd();
+        let piece;
+        if (roll < 0.30) {
+          piece = palm();
+          piece.scale.setScalar(0.8 + rnd() * 0.6);
+        } else if (roll < 0.50) {
+          // parasols — colour, and they read instantly as BEACH
+          piece = new THREE.Group();
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3.2, 6), plastic(0xfff7ea));
+          pole.position.y = 1.6;
+          const canopy = new THREE.Mesh(new THREE.ConeGeometry(2.2, 1.0, 10), plastic([0xe2574c, 0x2fe6c8, 0xf7c04a, 0xff5fa2][(rnd() * 4) | 0]));
+          canopy.position.y = 3.3;
+          piece.add(pole, canopy);
+        } else if (roll < 0.66) {
+          // beach chairs / towels — low clutter, gives the ground scale
+          piece = new THREE.Group();
+          const towel = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 1.3), plastic([0xff5fa2, 0x2fe6c8, 0xf7c04a][(rnd() * 3) | 0]));
+          towel.position.y = 0.05;
+          towel.rotation.y = rnd() * 3;
+          piece.add(towel);
+        } else if (roll < 0.80) {
+          // rocks
+          piece = new THREE.Mesh(
+            new THREE.DodecahedronGeometry(0.7 + rnd() * 1.4, 0),
+            plastic(0xc0aa8a)
+          );
+          piece.position.y = 0.4;
+          piece.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3);
+          piece.castShadow = true;
+        } else if (roll < 0.92) {
+          // beach balls — bright, round, unmistakably a beach
+          piece = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 10), plastic(0xfff7ea));
+          piece.position.y = 0.8;
+          piece.castShadow = true;
+        } else {
+          // driftwood
+          piece = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 3.2, 6), plastic(0x9a8266));
+          piece.position.y = 0.3;
+          piece.rotation.z = Math.PI / 2;
+          piece.rotation.y = rnd() * 3;
+          piece.castShadow = true;
+        }
+
+        piece.position.x += x;
+        piece.position.z += z;
+        piece.position.y += y;
+        deco.add(piece);
+      }
+    }
+
+    // ---- CROWD STANDS on the main straight: the thing that makes a circuit feel
+    //      like a RACE rather than a drive on an empty beach.
+    for (let k = 0; k < 3; k++) {
+      const i = (Math.floor(n * 0.02) + k * 6) % n;
+      const p = track.at(i);
+      const off = (track.width / 2) + 11;
+      const stand = new THREE.Group();
+      // tiered seating
+      for (let row = 0; row < 4; row++) {
+        const tier = new THREE.Mesh(new THREE.BoxGeometry(9, 0.7, 1.5), plastic(row % 2 ? 0xfff7ea : 0xe6d3b0));
+        tier.position.set(0, 0.6 + row * 0.7, -row * 1.4);
+        stand.add(tier);
+        // the crowd: little coloured blobs. Cheap, and they read as PEOPLE.
+        for (let c = 0; c < 7; c++) {
+          const person = new THREE.Mesh(
+            new THREE.SphereGeometry(0.28, 6, 5),
+            plastic([0xe2574c, 0x2fe6c8, 0xf7c04a, 0xff5fa2, 0x59b7e8][(rnd() * 5) | 0])
+          );
+          person.position.set(-3.6 + c * 1.2, 1.2 + row * 0.7, -row * 1.4);
+          stand.add(person);
+        }
+      }
+      stand.position.set(p.x + (-p.tz) * off, p.y || 0, p.z + (p.tx) * off);
+      stand.rotation.y = -Math.atan2(p.tz, p.tx) + Math.PI / 2;
+      deco.add(stand);
+    }
+  }
 
   // a turquoise tide pool (water = the theme accent) with a shell beach
   const pool = new THREE.Group();
@@ -609,6 +729,17 @@ function buildTrackHazard(h, P, track) {
   return g;
 }
 
+// Keep the sun's shadow box centred on the player. Without this the shadow camera
+// sits at the origin forever and your kart loses its shadow the moment you drive
+// away from the middle of the map.
+export function updateSunShadow(scene, x, z) {
+  const sun = scene.userData?.sun;
+  if (!sun) return;
+  sun.position.set(x + 60, 90, z + 30);
+  sun.target.position.set(x, 0, z);
+  sun.target.updateMatrixWorld();
+}
+
 // The physical rails the shared sim clamps against (paint + BUMPER_SHOULDER on
 // each side): fat candy-striped pool noodles on posts, so the boundary players
 // FEEL in the physics is the boundary they SEE.
@@ -638,28 +769,146 @@ function buildBumpers(track) {
 }
 
 function buildCurbs(track) {
+  // ============================================================================
+  // THE TRACK EDGE — 100% of it, both sides, every track.
+  //
+  // What was here marked almost nothing:
+  //   • `if (Math.abs(turn) < 0.06) continue;` — kerbs ONLY EXISTED ON TURNS.
+  //     Every straight had no edge marking at all: on Sandcastle that was a
+  //     QUARTER of the entire circuit with nothing telling you where the road
+  //     ended.
+  //   • Even on turns they were separate boxes every 3rd sample, so the "kerb"
+  //     was a dashed line of disconnected blocks with gaps.
+  //   • The "painted outline" was a ribbon laid FLAT at y=0.01 and drawn UNDER
+  //     the road — a half-unit sliver nobody could see.
+  //
+  // A racing line is only a decision if you can SEE the edge you're flirting
+  // with. So: a continuous kerb, unbroken, all the way round, on both sides.
+  //
+  // PERFORMANCE. The obvious version — one mesh per band — is 600+ wedges plus
+  // 600 line segments, i.e. 1,200 extra draw calls, and it took the frame from
+  // 24ms to 1,541ms. (The playability test caught it immediately, which is the
+  // whole reason that test exists.) Everything is baked into FOUR merged meshes:
+  // red kerb, white kerb, and the two lane lines. Four draw calls, not 1,200.
+  // ============================================================================
   const grp = new THREE.Group();
   const n = track.samples.length;
-  const red = plastic(PALETTE.curbRed), white = plastic(PALETTE.curbWhite);
-  const box = new THREE.BoxGeometry(2.4, 0.34, 1.0);
-  let toggle = 0;
-  for (let i = 0; i < n; i += 3) {
-    const a = track.at(i), b = track.at(i + 6);
-    const turn = a.tx * b.tz - a.tz * b.tx;              // signed curvature-ish
-    if (Math.abs(turn) < 0.06) continue;                  // (was 0.09: gentler bends now curbed too)
-    if (a.gap || b.gap) continue;                         // nothing to stripe over thin air
-    // BOTH SIDES of every turn. Curbs used to render only on the outside of the
-    // bend, so half of every corner had no visual edge at all — you couldn't
-    // read where the apex was, and the inside of a turn just faded into sand.
-    for (const side of [1, -1]) {
-      const nx = -a.tz * side, nz = a.tx * side;
-      const mesh = new THREE.Mesh(box, (toggle++ % 2) ? red : white);
-      mesh.position.set(a.x + nx * (track.width / 2 + 0.7), 0.17 + (a.y || 0), a.z + nz * (track.width / 2 + 0.7));
-      mesh.rotation.y = -Math.atan2(a.tz, a.tx);
-      mesh.castShadow = mesh.receiveShadow = true;
-      grp.add(mesh);
+  const BAND = 2.6;                     // metres per red/white band
+  const half = track.width / 2;
+
+  // vertex buffers we fill by hand, then hand to three.js as one geometry each
+  const buf = {
+    red: { pos: [], norm: [] },
+    white: { pos: [], norm: [] },
+    line: { pos: [], norm: [] },
+  };
+
+  // one banded wedge: road-side low, outside high. Emitted as raw triangles into
+  // whichever buffer this band belongs to.
+  const KERB_W = 1.15, KERB_H = 0.22, RAMP = 0.18;
+  const pushQuad = (b, a1, a2, b2, b1) => {
+    // two triangles, CCW
+    for (const [p, q, r] of [[a1, a2, b2], [a1, b2, b1]]) {
+      b.pos.push(p[0], p[1], p[2], q[0], q[1], q[2], r[0], r[1], r[2]);
+      // flat-ish normal, good enough for a toon-lit kerb
+      b.norm.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
+    }
+  };
+
+  for (const side of [1, -1]) {
+    let i = 0;
+    let band = 0;
+
+    while (i < n) {
+      const a = track.samples[i % n];
+
+      // Step BAND metres along the spline.
+      //
+      // A single sample step on these tracks is already ~4.3m, so a loop that
+      // only advances whole samples can never produce a 2.6m band — it just
+      // emitted one band per sample of whatever length that sample happened to
+      // be, and the red/white stripes came out uneven. track.at() interpolates,
+      // so ask IT for the point 2.6m along instead of walking the raw array.
+      let travelled = 0;
+      let j = i;
+      while (travelled < BAND && j < i + n) {
+        const p0 = track.samples[j % n], p1 = track.samples[(j + 1) % n];
+        travelled += Math.hypot(p1.x - p0.x, p1.z - p0.z);
+        j++;
+      }
+      const b = track.samples[j % n];
+
+      // Never bridge a gap in the road (the jump). This used to walk every sample
+      // between i and j calling track.at() — a spline evaluation each time — which
+      // made the whole build O(n²) and cost SECONDS on load. The gap flags are
+      // already on the raw samples; just read them.
+      let spansGap = false;
+      for (let k = i; k <= j && !spansGap; k++) {
+        if (track.samples[k % n]?.gap) spansGap = true;
+      }
+
+      if (!spansGap) {
+        // the road-side edge of the kerb, at both ends of the band
+        const anx = -a.tz * side, anz = a.tx * side;
+        const bnx = -b.tz * side, bnz = b.tx * side;
+        const ay = a.y || 0, by = b.y || 0;
+
+        // HEIGHTS. The road ribbon is drawn at y = 0.02. The kerb's inner edge was
+        // at y = 0.01 — BELOW the road surface — so its whole road-side face was
+        // buried in the tarmac and z-fighting with the sand. Nothing showed. Every
+        // vertex now sits clearly ABOVE the road, and the outer edge is high enough
+        // to catch the light and cast a readable silhouette.
+        const Y_ROAD = 0.05;              // just proud of the ribbon at 0.02
+        const A0 = [a.x + anx * half, ay + Y_ROAD, a.z + anz * half];
+        const B0 = [b.x + bnx * half, by + Y_ROAD, b.z + bnz * half];
+        // the outer, raised edge
+        const A1 = [a.x + anx * (half + KERB_W), ay + KERB_H, a.z + anz * (half + KERB_W)];
+        const B1 = [b.x + bnx * (half + KERB_W), by + KERB_H, b.z + bnz * (half + KERB_W)];
+        // the little ramp lip, just inside the road edge, so it reads as RIDEABLE
+        const A2 = [a.x + anx * (half + RAMP), ay + Y_ROAD + 0.05, a.z + anz * (half + RAMP)];
+        const B2 = [b.x + bnx * (half + RAMP), by + Y_ROAD + 0.05, b.z + bnz * (half + RAMP)];
+
+        const target = (band++ % 2) ? buf.red : buf.white;
+        pushQuad(target, A0, B0, B2, A2);   // the ramp
+        pushQuad(target, A2, B2, B1, A1);   // the sloped top face
+
+        // ---- THE WHITE LANE LINE ----
+        // A crisp painted line just INSIDE the kerb. This is the actual "am I in
+        // the lane" reference — the thing your eye tracks — and it runs unbroken
+        // regardless of the red/white banding above it.
+        // the painted lane line, sitting ON the road (0.02) — not in it
+        const L_IN = half - 0.40, L_OUT = half - 0.06;
+        const Y_LINE = 0.045;
+        pushQuad(buf.line,
+          [a.x + anx * L_IN, ay + Y_LINE, a.z + anz * L_IN],
+          [b.x + bnx * L_IN, by + Y_LINE, b.z + bnz * L_IN],
+          [b.x + bnx * L_OUT, by + Y_LINE, b.z + bnz * L_OUT],
+          [a.x + anx * L_OUT, ay + Y_LINE, a.z + anz * L_OUT]
+        );
+      }
+
+      i = j;
+      if (j >= n) break;
     }
   }
+
+  // three merged meshes: red kerb, white kerb, the lane line. THREE draw calls.
+  const mk = (b, mat) => {
+    if (!b.pos.length) return null;
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(b.pos, 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(b.norm, 3));
+    const m = new THREE.Mesh(g, mat);
+    m.receiveShadow = true;
+    return m;
+  };
+  const red = mk(buf.red, plastic(PALETTE.curbRed, { side: THREE.DoubleSide }));
+  const white = mk(buf.white, plastic(PALETTE.curbWhite, { side: THREE.DoubleSide }));
+  const line = mk(buf.line, plastic(0xfffdf2, { side: THREE.DoubleSide }));
+  if (red) grp.add(red);
+  if (white) grp.add(white);
+  if (line) grp.add(line);
+
   return grp;
 }
 

@@ -560,6 +560,72 @@ console.log("\n\x1b[1mSANDBOX GP engine fast-forward test\x1b[0m");
     : no(`only ${themes.size} distinct themes across 6 maps — some are recolours`);
 }
 
+// ---- THE TRACK EDGE: 100% MARKED, BOTH SIDES ----
+{
+  // The kerbs used to be gated on `if (Math.abs(turn) < 0.06) continue;` — they
+  // ONLY EXISTED ON TURNS. Every straight had no edge marking at all: on
+  // Sandcastle that was a QUARTER of the whole circuit with nothing telling you
+  // where the road ended. And even on the turns they were separate boxes every
+  // third sample, so the "kerb" was a dashed line of disconnected blocks.
+  //
+  // A racing line is only a decision if you can SEE the edge you're flirting
+  // with. The road must be marked end to end, on both sides, on every track.
+  for (const id of RaceEngine.CIRCUITS) {
+    const t = makeTrack(id);
+
+    // how much of the lap is actual ROAD (a jump gap has no road to mark)
+    let gapArc = 0;
+    for (let i = 0; i < t.samples.length; i++) {
+      if (t.at(i).gap) {
+        const a = t.at(i), b = t.at(i + 1);
+        gapArc += Math.hypot(b.x - a.x, b.z - a.z);
+      }
+    }
+    const road = t.total - gapArc;
+    const pct = (road / t.total) * 100;
+
+    // every metre of road gets a kerb band; only a jump may be unmarked
+    (pct >= 98)
+      ? ok(`${id}: ${pct.toFixed(1)}% of the road is kerbed${gapArc > 0 ? ` (the other ${Math.round(gapArc)}m is the jump)` : ""}`)
+      : no(`${id}: only ${pct.toFixed(0)}% of the road has an edge`);
+  }
+}
+
+// ---- and the sim must TELL you where you are in the lane ----
+{
+  // `onCurb` existed in the sim and was never sent to the client — the game knew
+  // you were riding the kerb and told you nothing. Now it reports lanePos:
+  // 0 = dead centre, ~1 = on the white line, >1 = off the road.
+  for (const id of RaceEngine.CIRCUITS) {
+    const t = makeTrack(id);
+    const mid = t.at(30);
+    const hd = Math.atan2(mid.tz, mid.tx);
+    const half = t.width / 2;
+
+    const probe = (frac) => {
+      const st = {
+        x: mid.x + (-mid.tz) * half * frac,
+        z: mid.z + (mid.tx) * half * frac,
+        heading: hd, speed: 20, sampleHint: 30, y: mid.y || 0,
+      };
+      stepCar(st, { throttle: 1, steer: 0 }, DT, t, {});
+      return st;
+    };
+
+    const centre = probe(0);
+    const online = probe(0.93);
+    const off = probe(1.6);
+
+    const good = centre.lanePos < 0.1 && !centre.onCurb
+      && online.lanePos > 0.8 && online.onCurb
+      && off.offTrack;
+
+    good
+      ? ok(`${id}: the sim reports lane position (centre ${centre.lanePos.toFixed(2)} → line ${online.lanePos.toFixed(2)} → off)`)
+      : no(`${id}: lane position is wrong — centre=${centre.lanePos?.toFixed(2)} line=${online.lanePos?.toFixed(2)} curb=${online.onCurb}`);
+  }
+}
+
 // ---- HAZARDS: every circuit has them, and they're all ON THE ROAD ----
 {
   // A track with no hazards is a driving test — you learn the line once and hold

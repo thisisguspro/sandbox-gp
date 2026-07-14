@@ -281,6 +281,10 @@ export const sfx = {
   },
   ashCloud: () => { playNoise(0.9, 0.28, true); playTone("sine", 140, 0.7, 0.12); },
 
+  // riding the kerb: a short, dry rattle. It has to be UNMISTAKABLE, because it's
+  // the only thing telling you you've run out of road.
+  curbRumble: () => { playNoise(0.06, 0.16, true); playTone('square', 90, 0.05, 0.06); },
+
   // ---- START LIGHTS ----
   // A low prep beep per red lamp, a tenser one on yellow, then a bright chord
   // on green. The pitch rising across the sequence is what makes the launch

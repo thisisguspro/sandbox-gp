@@ -233,16 +233,25 @@ export class Effects3D {
         st.kite = null; st.kiteString = null;
       }
 
-      // soaked: darken the body briefly + droplets
+      // Soaked darkens the body; erosion lets the sand show through.
+      //
+      // This used to allocate THREE Color objects every frame, for every player:
+      // a clone() plus two `new THREE.Color(...)`. Eight karts = 1,440 throwaway
+      // objects a second, all of it garbage for the collector to chase. Scratch
+      // colours are built once and reused.
       const body = rec.mesh.children[0];
       if (body?.material) {
-        if (!st.baseColor) st.baseColor = body.material.color.clone();
-        const target = st.baseColor.clone();
-        if (info.soaked) target.lerp(new THREE.Color(0x3a5f66), 0.45);
-        // erosion tint: the car IS sand — let it show through as armor erodes
+        if (!st.baseColor) {
+          st.baseColor = body.material.color.clone();
+          st.target = new THREE.Color();
+          st.soakCol = new THREE.Color(0x3a5f66);
+          st.sandCol = new THREE.Color(PALETTE.sandDark);
+        }
+        st.target.copy(st.baseColor);
+        if (info.soaked) st.target.lerp(st.soakCol, 0.45);
         const ero = Math.min(1, (info.erosion || 0) / 3);
-        if (ero > 0.05) target.lerp(new THREE.Color(PALETTE.sandDark), ero * 0.65);
-        body.material.color.lerp(target, 0.25);
+        if (ero > 0.05) st.target.lerp(st.sandCol, ero * 0.65);
+        body.material.color.lerp(st.target, 0.25);
       }
 
       // turbo streaks

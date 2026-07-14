@@ -158,6 +158,12 @@ export function stepCar(state, input, dt, track, mods = {}) {
   // rattles the car and scrubs a little speed — a real edge you can feel, not
   // just a painted stripe. Cutting a corner across the curb costs you.
   const halfW = track.width / 2;
+  // LANE POSITION. `onCurb` alone is a boolean that the client never even saw —
+  // the game knew you were riding the kerb and told you nothing. `lanePos` is
+  // where you actually are: 0 = dead centre, 1 = right on the white line, >1 =
+  // over it. That's what a lane indicator needs.
+  state.lanePos = onRibbon ? Math.min(1.6, Math.abs(lat) / halfW) : 1.6;
+  state.laneSide = Math.sign(lat);
   state.onCurb = !state.airborne && onRibbon && Math.abs(lat) > halfW * 0.86;
   if (state.onCurb) state.speed *= CAR.CURB_SCRUB;
 

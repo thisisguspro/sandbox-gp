@@ -117,6 +117,155 @@ Two env vars on the Render service:
 * `?dev_shot=1` — `preserveDrawingBuffer`, so headless screenshots aren't black.
 * `?dev_fastrace=1` — 1-lap testloop race, for exercising finish/results quickly.
 
+## v23.16 — driving every map, and finding four dead features
+
+Before shipping I drove **every mode and every map** in a real browser instead of
+trusting that the code was there. Two things fell out.
+
+**`tNowMs` was used in ELEVEN places and never declared.** Every one of those paths
+threw a ReferenceError the instant it ran, which killed the frame:
+
+* the **kerb rumble** (the thing that tells you you've run out of road)
+* the **water pour** in Sand Artist (the entire drawing mechanic's audio)
+* the **guess countdown ticks** (the accelerating 5-second lock)
+* the **IT pulse** in Riptide Tag
+
+Four features, all silently dead. It only surfaced on **Moonlit Dunes**, because
+that happened to be the first map where a car touched a kerb. Every one of those
+features was "in the code", and every one of them was broken.
+
+**The playability suite now drives all six circuits** and fails if any of them
+throws or fails to get moving. That is the test that would have caught this on day
+one, and it is the one I should have written first.
+
+**Verified live, in the running game, at speed:**
+
+| | |
+|---|---|
+| Tone mapping | ACES (4), exposure 1.15 — was **none** |
+| Ambient light | 0.42 — was **0.95**, drowning every shadow |
+| Sun shadow box | 46 units, **follows the car** — was a fixed 110-unit box at the origin |
+| The kart | **68 meshes, 4 wheels, a driver, no LatheGeometry** — was a blob that swallowed its own wheels |
+| Track edge | **18,576 kerb vertices**, 3 colours, both sides |
+| World dressing | 150 crowd blobs, 44 parasols, ~2,000 meshes — was **7 palm trees** |
+| Camera | 2.3m above the kart — was 3.3m, staring down at a toy |
+
+**All 6 modes**: render, run, show their HUD, zero page errors.
+**All 6 maps**: drive at speed, zero page errors.
+
+## v23.15 — the track edge, 100% of it
+
+Gustavo: *"the borders for the 2 sides of the track have not been added properly."*
+He was right without even looking, and here is exactly how bad it was.
+
+**The kerbs only existed on TURNS.** The builder opened with
+`if (Math.abs(turn) < 0.06) continue;` — so every straight had **no edge marking
+at all.** Measured: **25% of Sandcastle had nothing whatsoever** telling you where
+the road ended. And even on the turns they were separate boxes placed every third
+sample, so the "kerb" was a dashed line of disconnected blocks with gaps between
+them.
+
+The third thing claiming to mark the edge — the "painted outline" — was a ribbon
+1.1 units wider than the road, laid **flat at y=0.01 and drawn UNDERNEATH the
+road**. A half-unit sliver you could not see.
+
+So there was genuinely no continuous, readable "you are in the lane" marker
+anywhere in the game.
+
+**Now:** a continuous red/white kerb, unbroken, **both sides, all the way round,
+on every circuit** — plus an **unbroken white lane line** just inside it, which is
+the thing your eye actually tracks. Verified in the live game: 18,576 kerb
+vertices, 153 of them within 12m of the car mid-track, all three colours present
+beside you.
+
+Coverage: **100% on five circuits, 98.3% on Sandcastle** — and the missing 35m is
+the bridge jump, where there is no road to put a kerb on.
+
+**And the FUNCTIONAL half.** `onCurb` had existed in the sim the whole time and
+was **never sent to the client** — the game knew you were riding the kerb and told
+you nothing. Now:
+
+* the sim reports `lanePos`: 0 = dead centre, ~1 = on the white line, >1 = off
+* a **lane indicator** in the HUD shows exactly where you sit between the lines —
+  teal in the lane, amber on the kerb, red off the road
+* riding the kerb **rumbles the camera and rattles**, so you feel the edge
+
+**Two performance regressions I caused and the playability test caught:**
+
+* One mesh per kerb band = **1,200 extra draw calls**, and the frame went from
+  24ms to **1,541ms**. Baked into three merged meshes instead.
+* The gap-check walked every sample calling `track.at()` (a spline evaluation
+  each time), making the world build **O(n²)** — a **5,692ms** hitch on load.
+
+That test — drive a real browser, hold a real W key, assert the car moves and the
+frame budget holds — caught both within seconds. It is the single most valuable
+thing in the suite.
+
+## v23.14 — I FINALLY LOOKED AT THE GAME
+
+Everything below is the consequence of one fact: **until now I had never seen this
+game.** Every visual claim I made was verified by counting meshes and triangles in
+a headless browser. That is not seeing. When Gustavo said the art was 90% missing,
+he was right, and I had no basis to argue.
+
+### The two bugs that made it unplayable
+
+**Shader recompile, every frame, forever.** `animateCar` set
+`material.transparent = false` on the kart's shell every frame. In three.js
+`transparent` is part of the shader PROGRAM KEY — assigning it, *even to the value
+it already holds*, marks the material for recompilation. So every frame, for every
+kart, three.js rebuilt and relinked the shader. **51% of all CPU went into
+`getShaderInfoLog`. Frames took 1400ms instead of 16.** That is the "stuttering
+like the rear-view mirror is being spammed".
+
+**The input lock never cleared.** The lock was released by a client-side
+`setInterval` counting the 3-2-1 down. With the main thread stalled by the shader
+bug, that interval was starved, never reached zero, and never unlocked. **You could
+see the race, see other karts moving, and pressing W did nothing at all.** The lock
+is now read straight from the server's `startFreezeLeft`, which is self-healing —
+a local timer can only ever add a way to get stuck.
+
+**366 tests passed through all of this**, because the engine was fine. The bug lived
+entirely in the browser. There is now a `playable.test.mjs` that drives a real
+browser, holds a real W key, and asserts the car moves — plus a frame-budget check
+and a shader-cache check that would have caught this on day one.
+
+### Then I looked, and the art was as bad as he said
+
+**The kart was a LATHE** — a body of revolution. Structurally it can only ever be a
+blob: no front, no back, no wheel arches, no cockpit. And its radius (0.62) was
+exactly the wheel offset (±0.62), so **the shell swallowed all four wheels**. On
+screen: a featureless grey lump with a dome on top. Rebuilt as an actual kart — flat
+floor pan, tapered nose with a chevron, side pods with intakes, an open cockpit with
+a steering wheel and a visible driver, a raised engine deck, exhaust pipes, a rear
+wing on posts. The wheels are outside the bodywork, where wheels go.
+
+**No tone mapping.** Colours were dumped to the screen raw, which is why everything
+looked like a washed-out beige photocopy. ACES filmic + exposure 1.15.
+
+**Ambient light at 0.95** — so strong it drowned the sun and killed every shadow and
+every bit of shape. Now 0.42: a fill, not a flood.
+
+**The shadow camera was a fixed 110-unit box at the world origin**, on a track 400
+units across. Drive anywhere but the middle and your kart cast no shadow at all — it
+just floated on the sand. It now follows the player.
+
+**The road was invisible.** `sandLight` (f2dca8) and `sandDark` (d9b077) were nearly
+the same colour — a beige stripe on beige sand. The road is now properly darker
+packed sand with a near-white painted edge.
+
+**The world was empty.** Seven palm trees, hand-placed in a 70-unit box, on a
+400-unit track. Now there's dressing scattered along the entire circuit — palms,
+parasols, towels, rocks, beach balls, driftwood — plus **crowd stands with
+spectators** on the main straight.
+
+**The HUD was a debug overlay** — a 64px position number and solid cream slabs
+eating a quarter of the screen. Now dark translucent glass at a sane size, so you
+can see the game through it.
+
+**The camera** sat 7.2 units back and 3.3 up, staring down at a toy. Now low and
+close, with FOV and distance that open up with speed.
+
 ## v23.13 — the weekly competition, and six circuits
 
 **Time Attack is a WEEKLY competition now.** I'd built it wrong: an instant payout

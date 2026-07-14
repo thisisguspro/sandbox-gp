@@ -17,7 +17,7 @@ import { makeTrack } from "../game/shared/track.js";
 import { stepCar, stepCarFree, CAR } from "../game/shared/carSim.js";
 import { buildArena, ModeWorld3D } from "../game/arena3d.js";
 import { getArena, stepArena } from "../game/shared/arenas.js";
-import { buildWorld } from "../game/world.js";
+import { buildWorld, updateSunShadow } from "../game/world.js";
 import { buildCar, animateCar } from "../game/carMesh.js";
 import { ItemBoxes3D, Rings3D, Ribbon3D } from "../game/challenges3d.js";
 import { Effects3D } from "../game/items3d.js";
@@ -170,6 +170,12 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    // TONE MAPPING. There was none — every colour was dumped to the screen raw,
+    // which is why the whole game looked like a washed-out beige photocopy with
+    // no contrast and no punch. ACES gives the highlights somewhere to go and
+    // lets the saturated toy colours actually read as saturated.
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     mount.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -399,6 +405,7 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
     }
 
     // ---------- HUD sampling (cheap React state, 5 Hz) ----------
+    const camTarget = new THREE.Vector3();   // scratch: reused every frame
     let hudAt = 0;
     function sampleHud(tNow) {
       if (tNow - hudAt < 0.2) return;
@@ -422,6 +429,11 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
         speed: Math.round(Math.abs(me.speed) * 2.35), // m/s → toy mph
         standings: st,
         blinded: !!v?.you?.blinded,
+        // where in the lane you are, so the indicator has something to indicate
+        lanePos: my?.lanePos ?? 0,
+        laneSide: my?.laneSide ?? 0,
+        onCurb: !!my?.onCurb,
+        offTrack: !!my?.offTrack,
         heldItem: FX_CHALLENGE ? null : v?.you?.heldItem || null,
         challenge: FX_CHALLENGE || v?.you?.challenge || null,
         erosion: my?.erosion ?? 0,
@@ -439,6 +451,12 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       const tNow = now / 1000;
+      // Milliseconds, for the audio rate-limiters. This was used in ELEVEN places
+      // — the kerb rumble, the water pour, the guess countdown, the IT pulse — and
+      // was NEVER DECLARED. Every one of those paths threw a ReferenceError the
+      // moment it ran, which killed the frame. It only surfaced on Moonlit Dunes
+      // because that is where a car first touched a kerb.
+      const tNowMs = now;
       const v = viewRef.current;
 
       // ingest new snapshot exactly once per server tick
@@ -682,7 +700,7 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
         const k = 1 - (dc.until - Date.now()) / 4000;
         const ang = -Math.PI / 2 + k * 1.5;
         const r = 9 - k * 2.5;
-        cam.position.lerp(new THREE.Vector3(dc.x + Math.cos(ang) * r, (dc.y || 0) + 4.2 - k * 1.4, dc.z + Math.sin(ang) * r), Math.min(1, dt * 5));
+        cam.position.lerp(camTarget.set(dc.x + Math.cos(ang) * r, (dc.y || 0) + 4.2 - k * 1.4, dc.z + Math.sin(ang) * r), Math.min(1, dt * 5));
         cam.lookAt(dc.x, (dc.y || 0) + 0.9, dc.z);
         renderer.render(scene, cam);
         raf = requestAnimationFrame(frame);
@@ -703,7 +721,7 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
               const h = target.heading ?? 0;
               const cx = tx - Math.cos(h) * 9;
               const cz = tz - Math.sin(h) * 9;
-              cam.position.lerp(new THREE.Vector3(cx, ty + 4.5, cz), Math.min(1, dt * 5));
+              cam.position.lerp(camTarget.set(cx, ty + 4.5, cz), Math.min(1, dt * 5));
               cam.lookAt(tx, ty + 1.0, tz);
               renderer.render(scene, cam);
               raf = requestAnimationFrame(frame);
@@ -716,7 +734,15 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       // camera: chase (or full look-back while held)
       const flip = lookBackHeld() ? -1 : 1;
       const meY = me.y || 0;
-      const back = 7.2 * flip, up = 3.3 + meY;
+      // CAMERA. It sat 7.2 units back and 3.3 up, which for a 2-unit kart put you
+      // way out and high, staring DOWN at a toy on a beach. A kart racer wants you
+      // low and close — right on the engine deck — so the kart fills the frame, you
+      // feel the speed, and the road rushes at you instead of scrolling under you.
+      // It also pulls back and rises slightly with speed, which is the oldest trick
+      // there is for making fast feel fast.
+      const spd01 = Math.min(1, Math.abs(me.speed) / 26);
+      const back = (4.9 + spd01 * 1.3) * flip;
+      const up = 2.1 + spd01 * 0.35 + meY;
       const cx = me.x - Math.cos(me.heading) * back;
       const cz = me.z - Math.sin(me.heading) * back;
       // First frame: SNAP the camera behind the car. Lerping from the world
@@ -726,7 +752,7 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
         cam.position.set(cx, up, cz);
         camSeededRef.current = true;
       }
-      cam.position.lerp(new THREE.Vector3(cx, up, cz), Math.min(1, dt * 7));
+      cam.position.lerp(camTarget.set(cx, up, cz), Math.min(1, dt * 7));
       // ---- HAZARD FEEDBACK ----
       // A hazard you don't feel is a hazard you'll blame on lag. Each one has its
       // own voice and its own camera behaviour.
@@ -752,11 +778,20 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
         }
       }
 
-      // curb rumble: a fast, small judder so the strip FEELS like a rumble strip
+      // ---- RIDING THE KERB ----
+      // A fast, small judder, plus an actual rumble SOUND. The sim has always
+      // known you were on the kerb (`onCurb`) and never once told you — the value
+      // wasn't even sent to the client. If you can't feel the edge, the racing
+      // line isn't a decision, it's a guess.
       if (me.onCurb && Math.abs(me.speed) > 6) {
-        const r = 0.055 * Math.min(1, Math.abs(me.speed) / 20);
+        const r = 0.06 * Math.min(1, Math.abs(me.speed) / 20);
         cam.position.y += Math.sin(tNow * 62) * r;
         cam.position.x += Math.sin(tNow * 51) * r * 0.5;
+        const snd = sndRef.current;
+        if (tNowMs > (snd.curbAt ?? 0)) {
+          sfx.curbRumble?.();
+          snd.curbAt = tNowMs + 90;
+        }
       }
       if (shakeRef.current > 0.01) {
         const s = shakeRef.current;
@@ -765,7 +800,19 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
         cam.position.z += (Math.random() - 0.5) * s * 0.7;
         shakeRef.current *= Math.max(0, 1 - dt * 3.2);
       }
-      cam.lookAt(me.x + Math.cos(me.heading) * 6 * flip, 1.1 + meY, me.z + Math.sin(me.heading) * 6 * flip);
+      // aim a little way down the road and slightly LOW — looking at the horizon
+      // makes the track feel flat and far away
+      cam.lookAt(
+        me.x + Math.cos(me.heading) * 8 * flip,
+        0.95 + meY,
+        me.z + Math.sin(me.heading) * 8 * flip
+      );
+      // FOV widens with speed: the cheapest, most effective speed cue in games
+      const wantFov = 58 + spd01 * 9;
+      if (Math.abs(cam.fov - wantFov) > 0.05) {
+        cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 4);
+        cam.updateProjectionMatrix();
+      }
       mirrorCam.position.set(me.x, 2.1 + meY, me.z);
       mirrorCam.lookAt(me.x - Math.cos(me.heading) * 10, 1.5 + meY, me.z - Math.sin(me.heading) * 10);
 
@@ -773,6 +820,9 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       const W = mount.clientWidth, H = mount.clientHeight;
       renderer.setScissorTest(false);
       renderer.setViewport(0, 0, W, H);
+      // keep the shadow box under the player, or you lose your shadow the moment
+      // you drive away from the middle of the map
+      updateSunShadow(scene, me.x, me.z);
       renderer.render(scene, cam);
       const mw = Math.floor(Math.min(W * 0.24, 360)), mh = Math.floor(mw / 3.4);
       const mx = Math.floor((W - mw) / 2), my2 = H - mh - 16;
@@ -1279,10 +1329,20 @@ function RaceHud({ hud, toast, onLeave, posFlash, wrongWay, roulette, miniRef, l
                   modeId = "race", modeYou = null, modeWorld = null, players = [] }) {
   const compact = useCompactHud();
   const { t } = useI18n();
+  // The HUD chips were solid cream slabs at 92% opacity — they read as UI stuck
+  // ON TOP of the game rather than part of it, and at 64px the position number
+  // alone ate a quarter of the frame. Dark, translucent, smaller: you can see the
+  // GAME through the gaps, which is the whole point of a HUD.
   const chip = {
-    background: "rgba(255,247,234,0.92)", color: "#5a4632", borderRadius: 14,
-    padding: "8px 14px", fontFamily: "var(--display, system-ui)", fontWeight: 800,
-    boxShadow: "0 4px 14px rgba(90,70,50,0.25)",
+    background: "rgba(20,32,38,0.62)",
+    color: "#fff7ea",
+    borderRadius: 10,
+    padding: "6px 12px",
+    fontFamily: "var(--display, system-ui)",
+    fontWeight: 800,
+    backdropFilter: "blur(6px)",
+    border: "1px solid rgba(255,247,234,0.18)",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.28)",
   };
   return (
     <>
@@ -1641,10 +1701,50 @@ function RaceHud({ hud, toast, onLeave, posFlash, wrongWay, roulette, miniRef, l
         })()}
       </div>
 
+      {/* ---- THE LANE INDICATOR ----
+          You asked to always know you're in the lane. This is the readout: a bar
+          showing exactly where the kart sits between the two white lines. It goes
+          amber when you're on the kerb and red when you've left the road, so you
+          never have to guess whether that noise was the edge or a rival. */}
+      {hud.lanePos != null && (
+        <div data-qa="hud-lane" style={{
+          position: "absolute", bottom: 14, left: "50%", transform: "translateX(-50%)",
+          width: compact ? 160 : 240, pointerEvents: "none", zIndex: 12,
+        }}>
+          <div style={{
+            position: "relative",
+            height: compact ? 8 : 11,
+            borderRadius: 6,
+            background: "rgba(20,32,38,0.62)",
+            border: "1px solid rgba(255,247,234,0.28)",
+            overflow: "hidden",
+            backdropFilter: "blur(6px)",
+          }}>
+            {/* the two white lines — the road's actual edges */}
+            <div style={{ position: "absolute", left: "6%", top: 0, bottom: 0, width: 2, background: "rgba(255,253,242,0.9)" }} />
+            <div style={{ position: "absolute", right: "6%", top: 0, bottom: 0, width: 2, background: "rgba(255,253,242,0.9)" }} />
+            {/* the kerb zones */}
+            <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: "6%", background: "rgba(226,87,76,0.45)" }} />
+            <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: "6%", background: "rgba(226,87,76,0.45)" }} />
+            {/* YOU */}
+            <div style={{
+              position: "absolute", top: -1, bottom: -1,
+              // lanePos 0..1 across half the road; laneSide picks which half
+              left: `calc(50% + ${Math.max(-1, Math.min(1, (hud.lanePos || 0) * (hud.laneSide || 0))) * 44}% - 3px)`,
+              width: 6,
+              borderRadius: 3,
+              background: hud.offTrack ? "#e2574c" : hud.onCurb ? "#f7c04a" : "#2fe6c8",
+              boxShadow: `0 0 8px ${hud.offTrack ? "#e2574c" : hud.onCurb ? "#f7c04a" : "#2fe6c8"}`,
+              transition: "background 0.12s",
+            }} />
+          </div>
+        </div>
+      )}
+
       {/* position + lap, top-left */}
       <div data-qa="hud-chips" style={{ position: "absolute", left: 16, top: 14, display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start", pointerEvents: "none" }}>
         <div style={{
-          ...chip, fontSize: compact ? 34 : 64, padding: compact ? "6px 14px" : "10px 24px",
+          ...chip, fontSize: compact ? 24 : 38, padding: compact ? "4px 10px" : "6px 14px",
           color: posFlash ? (posFlash.dir === "up" ? "#1f9d55" : "#e2574c") : hud.pos === 1 ? "#c98a12" : "#5a4632",
           transform: posFlash ? "scale(1.18)" : "scale(1)",
           transition: "transform 0.18s ease, color 0.18s ease",
@@ -1677,7 +1777,7 @@ function RaceHud({ hud, toast, onLeave, posFlash, wrongWay, roulette, miniRef, l
         </div>
       )}
       {/* speed, bottom-right */}
-      <div data-qa="hud-speed" style={{ position: "absolute", right: 18, bottom: 16, ...chip, fontSize: compact ? 30 : 44, pointerEvents: "none" }}>
+      <div data-qa="hud-speed" style={{ position: "absolute", right: 16, bottom: 14, ...chip, fontSize: compact ? 20 : 28, pointerEvents: "none" }}>
         {hud.speed} <span style={{ fontSize: compact ? 15 : 20, opacity: 0.7 }}>mph</span>
       </div>
       {/* mini standings, top-right */}

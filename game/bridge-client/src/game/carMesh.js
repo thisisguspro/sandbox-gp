@@ -938,50 +938,108 @@ export function buildCar({ bodyColor = PALETTE.toyRed, capColor = null, skin = P
   const car = new THREE.Group();
   const body = new THREE.Group();
 
-  // ---- the shell: a lathe-built teardrop, low and rounded (anime silhouette) ----
-  const pts = [];
-  for (let i = 0; i <= 10; i++) {
-    const t = i / 10;
-    const r = 0.62 * Math.sin(Math.PI * Math.min(1, t * 1.08)) * (1 - t * 0.18);
-    pts.push(new THREE.Vector2(Math.max(0.02, r), (t - 0.5) * 2.3));
+  // ============================================================================
+  // THE CHASSIS
+  //
+  // What was here was a LATHE — a body of revolution. That is structurally the
+  // wrong primitive for a kart: spun around an axis it can only ever be a BLOB.
+  // It had no front, no back, no wheel arches and no cockpit floor. Worse, its
+  // radius (0.62) was exactly the wheel offset (±0.62), so the shell SWALLOWED
+  // all four wheels. On screen it was a featureless grey lump with a dome on top
+  // and you genuinely could not tell it was a vehicle.
+  //
+  // This is a real kart: a low flat floor, a tapered nose, side pods, an open
+  // cockpit you can see the driver sitting in, and a raised engine deck. The
+  // wheels are OUTSIDE the bodywork, where wheels go.
+  // ============================================================================
+  const isMecha = /mecha/.test(loadout.body || "");
+  const isRonin = /ronin/.test(loadout.body || "");
+  const paint = isMecha ? 0x9aa3ad : isRonin ? 0x3a3038 : bodyColor;
+  const shellMat = toon(paint);
+  const trimMat = toon(isRonin ? 0xe2574c : 0xfff1d6);
+  const darkMat = toon(0x2c2620);
+
+  // ---- the floor pan ----
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.12, 2.05), shellMat);
+  floor.position.y = 0.30;
+  floor.castShadow = true;
+  body.add(floor);
+
+  // ---- THE NOSE: a wedge that tapers to a point. This is what tells you which
+  //      way a kart is pointing at 90mph. The blob had nothing like it.
+  const nose = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.46, 0.86, 4, 1), shellMat);
+  nose.rotation.x = -Math.PI / 2;
+  nose.rotation.y = Math.PI / 4;
+  nose.position.set(0, 0.40, 1.30);
+  nose.castShadow = true;
+  body.add(nose);
+  const chevron = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.30), trimMat);
+  chevron.position.set(0, 0.52, 1.22);
+  chevron.rotation.y = Math.PI / 4;
+  body.add(chevron);
+
+  // ---- SIDE PODS: they give the kart a waist, and the wheels tuck against them
+  for (const s of [-1, 1]) {
+    const pod = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.30, 1.15), shellMat);
+    pod.position.set(s * 0.42, 0.44, 0.02);
+    pod.castShadow = true;
+    body.add(pod);
+    const scoop = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.16, 0.22), darkMat);
+    scoop.position.set(s * 0.47, 0.52, 0.62);
+    body.add(scoop);
+    const flankStripe = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.08, 1.05), trimMat);
+    flankStripe.position.set(s * 0.56, 0.50, 0.02);
+    body.add(flankStripe);
   }
-  const shellMat = /mecha/.test(loadout.body || "") ? toon(0x9aa3ad) : /ronin/.test(loadout.body || "") ? toon(0x3a3038) : toon(bodyColor);
-  const shell = new THREE.Mesh(new THREE.LatheGeometry(pts, 18), shellMat);
-  shell.rotation.x = Math.PI / 2;
-  shell.rotation.z = Math.PI;
-  shell.scale.set(1.05, 0.62, 1);
-  shell.position.y = 0.42;
-  body.add(shell);
 
-  // racing stripe down the nose (ronin gets coral, others cream)
-  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.02, 1.9), toon(/ronin/.test(loadout.body || "") ? 0xe2574c : 0xfff1d6));
-  stripe.position.y = 0.71;
-  body.add(stripe);
+  // ---- THE COCKPIT: an open tub. You can SEE the driver sitting in it.
+  const tubFloor = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 0.86), darkMat);
+  tubFloor.position.set(0, 0.42, -0.02);
+  body.add(tubFloor);
+  for (const s of [-1, 1]) {
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.26, 0.86), shellMat);
+    wall.position.set(s * 0.30, 0.56, -0.02);
+    body.add(wall);
+  }
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.22, 0.10), shellMat);
+  dash.position.set(0, 0.58, 0.44);
+  body.add(dash);
+  const steer = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.035, 6, 14), darkMat);
+  steer.position.set(0, 0.68, 0.32);
+  steer.rotation.x = 1.15;
+  body.add(steer);
 
-  // scooped cockpit ring
-  const cockpit = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.07, 8, 16), toon(0x2c2620));
-  cockpit.rotation.x = Math.PI / 2;
-  cockpit.position.set(0, 0.62, -0.12);
-  body.add(cockpit);
-
-  // chunky fenders over each wheel
-  const fenderMat = toon(new THREE.Color(bodyColor).multiplyScalar(0.8).getHex());
-  for (const [fx, fz] of [[0.55, 0.72], [-0.55, 0.72], [0.55, -0.78], [-0.55, -0.78]]) {
-    const f = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), fenderMat);
-    f.position.set(fx, 0.42, fz);
-    f.scale.set(1, 0.8, 1.25);
-    body.add(f);
+  // ---- THE ENGINE DECK: the silhouette you stare at for the whole race
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.38, 0.62), shellMat);
+  deck.position.set(0, 0.56, -0.72);
+  deck.castShadow = true;
+  body.add(deck);
+  const engine = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.26, 0.44), darkMat);
+  engine.position.set(0, 0.82, -0.72);
+  body.add(engine);
+  for (const s of [-1, 1]) {
+    const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.44, 8), toon(0xb8bcc4));
+    pipe.rotation.x = Math.PI / 2;
+    pipe.position.set(s * 0.22, 0.72, -1.12);
+    body.add(pipe);
   }
 
-  // big rear wing
-  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.06, 0.34), toon(0xfff1d6));
-  wing.position.set(0, 0.86, -1.02);
-  const post1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.06), toon(0x2c2620));
-  post1.position.set(0.4, 0.7, -1.02);
-  const post2 = post1.clone(); post2.position.x = -0.4;
+  // ---- rear wing on posts ----
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.06, 0.30), trimMat);
+  wing.position.set(0, 1.12, -1.02);
+  const post1 = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.26, 0.06), darkMat);
+  post1.position.set(0.36, 0.99, -1.02);
+  const post2 = post1.clone();
+  post2.position.x = -0.36;
   body.add(wing, post1, post2);
 
-  // ---- the chibi driver: big helmeted head, tiny torso, mitts on the wheel ----
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.02, 1.5), trimMat);
+  stripe.position.set(0, 0.47, 0.55);
+  body.add(stripe);
+
+  // the erosion system tints this — the floor pan is the biggest painted surface
+  const shell = floor;
+
   const driver = new THREE.Group();
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.16, 4, 8), toon(bodyColor));
   torso.position.y = 0.16;
@@ -1182,12 +1240,32 @@ export function animateCar(car, { speed = 0, steer = 0, offTrack = false, erosio
     }
     // the core shows through once you're properly holed
     if (ero.core) ero.core.visible = lvl > 0.28;
-    // and the paint itself dulls as it's scoured away
+    // The paint dulls as it's scoured away.
+    //
+    // THIS BLOCK WAS THE PERFORMANCE BUG THAT MADE THE GAME UNPLAYABLE.
+    // It used to also set `material.transparent = false` and `opacity = 1` here.
+    // Both were pointless — they're already those values — but in three.js
+    // `transparent` is part of the shader PROGRAM KEY. Assigning it at all, even
+    // to the identical value, marks the material for recompilation. So every
+    // frame, for every kart, three.js rebuilt and relinked the shader: 51% of all
+    // CPU time went into getShaderInfoLog/getProgramInfoLog, frames took 1400ms
+    // instead of 16, and the chase camera lerped across a huge gap each frame —
+    // which is exactly the "stuttering like the rear-view mirror is being
+    // spammed" you saw. The car felt unresponsive because the whole client was
+    // running at 3fps.
+    //
+    // Only touch the colour, only when it actually changes, and never allocate.
     if (shell?.material) {
-      shell.material.opacity = 1;
-      shell.material.transparent = false;
-      if (!shell.userData._c0) shell.userData._c0 = shell.material.color.clone();
-      shell.material.color.copy(shell.userData._c0).lerp(new THREE.Color(0xc19052), lvl * 0.55);
+      if (!shell.userData._c0) {
+        shell.userData._c0 = shell.material.color.clone();
+        shell.userData._cTarget = new THREE.Color(0xc19052);   // allocated ONCE
+        shell.userData._cLvl = -1;
+      }
+      // a colour lerp is only worth doing when the erosion has actually moved
+      if (Math.abs(lvl - shell.userData._cLvl) > 0.01) {
+        shell.userData._cLvl = lvl;
+        shell.material.color.copy(shell.userData._c0).lerp(shell.userData._cTarget, lvl * 0.55);
+      }
     }
 
     // ---- THE SAND TRAIL ----

@@ -78,7 +78,6 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
   const [joke, setJoke] = useState(false);      // hit the streamer-mode decoy code
   const [flash, setFlash] = useState(null);
   const [countdown, setCountdown] = useState(null); // 3-2-1-GO race start intro
-  const [inputLocked, setInputLocked] = useState(false); // freeze player input during the 3-2-1 stand-by
   const [liveEvents, setLiveEvents] = useState([]);
   const raceEventsRef = useRef([]); // drained by Race3D each frame
   const prevPhase = useRef(null);
@@ -140,8 +139,11 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
       if (ph === "active" && prevPhase.current === "lobby") {
         // Seed the visual 3-2-1 from the server's authoritative stand-off timer so
         // the "DRAW!" lands exactly when the server releases movement.
-        setCountdown(Math.max(1, Math.ceil(view.startFreezeLeft || 3)));
-        setInputLocked(true);
+        // The start lights in the HUD are the real countdown now (they read the
+        // server clock directly). This 3-2-1 overlay is a short flourish on top —
+        // seeding it from an 11-second freeze meant it ticked for eleven seconds
+        // and looked broken.
+        setCountdown(3);
         raceStartAt.current = Date.now();
         cgGameplayStart();
         const players = view.players || [];
@@ -215,7 +217,13 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     // dev_fastrace=1 (QA only): a 1-lap testloop race so finish/results flows
     // can be exercised in seconds instead of the grand circuit's 4+ minutes
     const fast = new URLSearchParams(window.location.search).get("dev_fastrace") === "1";
-    const cfg = fast ? { isPublic: false, laps: 1, trackId: "testloop", finishTimeoutSec: 6 } : { isPublic: false };
+    // ?dev_track=volcano lets QA open a specific circuit without clicking through
+    // the lobby. Harmless in production (nobody types it) and it is the only way
+    // to actually LOOK at every map.
+    const devTrack = new URLSearchParams(location.search).get("dev_track");
+    const cfg = fast
+      ? { isPublic: false, laps: 1, trackId: "testloop", finishTimeoutSec: 6 }
+      : (devTrack ? { isPublic: false, trackId: devTrack } : { isPublic: false });
     const res = await conn.createRoom(cfg, user.name);
     if (res.error) return setError(res.error);
     if (res.playerId) playerIdRef.current = res.playerId;
@@ -274,7 +282,8 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
     <div style={wrap}>
       <SpeedLines hot={inMatch} />
       {flash && <KanjiFlash {...flash} onDone={() => setFlash(null)} />}
-      {countdown != null && <Countdown n={countdown} onGo={() => setInputLocked(false)} onDone={() => { setCountdown(null); setInputLocked(false); }} />}
+      {/* purely cosmetic now — it cannot lock or unlock anything */}
+      {countdown != null && <Countdown n={countdown} onGo={() => {}} onDone={() => setCountdown(null)} />}
       {error && <div style={toast}>{error}</div>}
 
       <div style={{ position: "relative", zIndex: 2, height: "100%" }}>
@@ -284,7 +293,18 @@ export default function Play({ user, profile, catalogue, onRoomStatus, onChange,
           onQuickPlay={quickPlay} onTimeTrial={timeTrial}
           questsSlot={<DailyQuests refreshKey={questsRefresh} />} />}
         {roomId && !inMatch && <LobbyRoom view={view} roomId={roomId} conn={conn} isHost={view?.you?.id === view?.hostId} onLeave={leave} />}
-        {roomId && view?.phase === "active" && <Race3D view={view} roomId={roomId} conn={conn} inputLocked={inputLocked || ((view?.startFreezeLeft ?? 0) > 0)} onLeave={leave} eventQueue={raceEventsRef} />}
+        {/* INPUT LOCK: the SERVER decides when you can drive, and nothing else.
+            This used to be `inputLocked || startFreezeLeft > 0` — where
+            `inputLocked` was a piece of React state cleared by a client-side
+            setInterval counting down from the countdown number. When the frame
+            loop stalled (see the shader bug in carMesh), that interval got
+            starved, never reached zero, never fired onDone, and the lock stayed
+            on FOREVER. The player could see the race, could see other karts
+            moving, and pressing W did absolutely nothing.
+            The server already publishes startFreezeLeft every tick. It is
+            self-healing: if a frame is dropped the next snapshot still says 0.
+            A local timer can only ever add a way to get stuck. */}
+        {roomId && view?.phase === "active" && <Race3D view={view} roomId={roomId} conn={conn} inputLocked={(view?.startFreezeLeft ?? 0) > 0} onLeave={leave} eventQueue={raceEventsRef} />}
         {roomId && view?.phase === "ended" && <Results view={view} roomId={roomId} conn={conn} profile={profile} catalogue={catalogue}
           onLeave={() => { cgClearRoom(); if (conn && roomId) conn.leaveRoom(roomId); roomIdRef.current = null; cgMidgameAd(() => { setRoomId(null); setView(null); onChange?.(); }); }} onChange={onChange} />}
       </div>

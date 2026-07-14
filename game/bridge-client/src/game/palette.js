@@ -87,9 +87,13 @@ export const PALETTE = {
   sunlight: 0xfff2dd,
   ambient: 0xbfe3f2,
 
-  sandLight: 0xf2dCA8,   // dry beach sand (ground)
-  sandDark: 0xd9b077,    // packed wet sand (the track ribbon)
-  sandEdge: 0xfff7e0,    // painted lane edge
+  // THE ROAD HAS TO BE VISIBLE. sandLight (f2dca8) and sandDark (d9b077) were
+  // almost the same colour — the track was a beige stripe on beige sand and you
+  // genuinely could not see where the road ended. Packed wet sand is much darker
+  // and cooler than dry beach sand, so this is also just more truthful.
+  sandLight: 0xf7e2b8,   // dry beach sand — lighter, warmer
+  sandDark: 0xb08652,    // the ROAD: packed wet sand, properly darker
+  sandEdge: 0xfffdf2,    // the painted lane edge, near-white so it pops
 
   curbRed: 0xe2574c,
   curbWhite: 0xfff7ea,
