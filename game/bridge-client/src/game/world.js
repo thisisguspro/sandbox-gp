@@ -124,7 +124,7 @@ export function buildWorld(scene, track) {
     // skirt function the embankment, the props and the physics all use: dips
     // carve a real trench, crests rise to meet the road, and there is no
     // second opinion anywhere about where the world's surface is.
-    const SEG = 110, EXT = 1250;
+    const SEG = 200, EXT = 1250;   // finer grid: 6m cells so grades render true near the track
     const verts = [], uvs = [], idx = [];
     for (let iy = 0; iy <= SEG; iy++) {
       for (let ix = 0; ix <= SEG; ix++) {
@@ -1232,11 +1232,28 @@ function terrainHeightAt(track, x, z) {
     const dd = Math.hypot(q.x - x, q.z - z);
     if (dd < lowD) { lowD = dd; low = q; }
   }
-  if (low && lowD < track.width / 2 + 2.5) { near = low; nd = lowD; }   // corridor + shoulder only: wider carved the skirt out from under the approaching deck edge
   const SKIRT_START = track.width / 2 - 0.7, SKIRT_LEN = 34;
   const f = Math.max(0, Math.min(1, (nd - SKIRT_START) / SKIRT_LEN));
   const ease = f * f * (3 - 2 * f);
-  return (near.y || 0) * (1 - ease);
+  const natural = (near.y || 0) * (1 - ease);
+  // THE GRADED CUTTING. The old version was a hard switch: inside 8.5m of the
+  // lower road the ground was lane-level, one step outside it was the full
+  // hillside — a vertical sand wall on a boundary the terrain mesh's big
+  // triangles then interpolated ACROSS, slicing sand faces through the lane.
+  // Now the bank is a continuous grade: near a lower road the ground may only
+  // rise at ~29° starting past the shoulder, so the hill always climbs AWAY
+  // from the lane, the mesh has no cliff to bridge, and nothing can render
+  // through the corridor. min() means it can only ever LOWER the natural
+  // skirt — the upper road's own embankment is untouched everywhere else.
+  if (low) {
+    // the cut FADES OUT sideways: full grade near the lane, fully gone by 16m,
+    // so the excavation stops undermining the upper road's own shoulder — the
+    // over-wide dig was what pulled the hillside out from under its rails.
+    const fade = Math.min(1, Math.max(0, (lowD - 14) / 6));   // starts past mesh-cell reach of the corridor probes
+    const allowed = (low.y || 0) + Math.max(0, lowD - (track.width / 2 + 2.8)) * 0.5 + fade * 60;
+    return Math.min(natural, allowed);
+  }
+  return natural;
 }
 
 function buildPilings(track) {

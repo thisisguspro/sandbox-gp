@@ -200,7 +200,22 @@ export class Ribbon3D {
     this.LOOK = 55;      // meters of lane drawn ahead
   }
   sync(ch, meState) {
-    if (!ch || ch.type !== "ribbon") { this.clear(); return; }
+    if (!ch || ch.type !== "ribbon") {
+      // don't vanish mid-stretch: the server drops the challenge the moment it
+      // resolves, but you're still ON the lane — linger and fade for 1.6s so
+      // the corridor never pops out from under you.
+      if (this.mesh && this._lingerUntil == null) this._lingerUntil = performance.now() + 1600;
+      if (this.mesh && performance.now() < this._lingerUntil) {
+        const k = (this._lingerUntil - performance.now()) / 1600;
+        this.mesh.material.opacity *= 0.985;
+        if (this.wallL) { this.wallL.material.opacity = 0.22 * k; this.wallR.material.opacity = 0.22 * k; }
+        return;
+      }
+      this._lingerUntil = null;
+      this.clear();
+      return;
+    }
+    this._lingerUntil = null;
     if (!this.mesh) {
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array((this.SEGS + 1) * 2 * 3), 3));

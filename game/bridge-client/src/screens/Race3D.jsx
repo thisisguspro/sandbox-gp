@@ -304,9 +304,40 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       const mesh = buildCar({ bodyColor: new THREE.Color(p.idColor || "#e2574c").getHex(), loadout: p.loadout || {} });
       mesh.traverse((o) => { if (o.isMesh) o.castShadow = true; });
       scene.add(mesh);
-      const rec = { mesh, snapA: null, snapB: null, steerVis: 0 };
+      const rec = { mesh, snapA: null, snapB: null, steerVis: 0, teamMarker: null, teamOf: null };
       meshes.set(p.id, rec);
       return rec;
+    }
+
+    // ---------- overhead team markers ----------
+    // In any team mode, every kart carries a spinning diamond over the driver's
+    // head in its TEAM colour — same colours as the flags — so friend or foe
+    // reads in a glance at any distance. Attached to the car mesh, so it
+    // follows for free; removed the moment the player has no team.
+    const TEAM_MARKER_COLORS = [0x2fe6c8, 0xff5a3c];
+    function syncTeamMarker(rec, team) {
+      if (team == null) {
+        if (rec.teamMarker) { rec.mesh.remove(rec.teamMarker); rec.teamMarker = null; rec.teamOf = null; }
+        return;
+      }
+      if (rec.teamMarker && rec.teamOf === team) return;
+      if (rec.teamMarker) rec.mesh.remove(rec.teamMarker);
+      const g = new THREE.Group();
+      const core = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.34, 0),
+        new THREE.MeshBasicMaterial({ color: TEAM_MARKER_COLORS[team] ?? 0xffffff, fog: false })
+      );
+      core.scale.y = 1.5;
+      const halo = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.48, 0),
+        new THREE.MeshBasicMaterial({ color: TEAM_MARKER_COLORS[team] ?? 0xffffff, transparent: true, opacity: 0.28, blending: THREE.AdditiveBlending, depthWrite: false, fog: false })
+      );
+      halo.scale.y = 1.5;
+      g.add(core, halo);
+      g.position.y = 3.0;
+      rec.mesh.add(g);
+      rec.teamMarker = g;
+      rec.teamOf = team;
     }
 
     // ---------- input ----------
@@ -436,6 +467,7 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       if (v.serverNow != null) clockOffset = v.serverNow - tNow;
       for (const p of v.players) {
         const rec = ensureMesh(p);
+        syncTeamMarker(rec, p.team ?? null);
         rec.snapA = rec.snapB;
         rec.snapB = { t: v.serverNow ?? tNow, x: p.x, z: p.z, y: p.y, heading: p.heading, speed: p.speed, offTrack: p.offTrack, erosion: p.erosion || 0 };
         rec.info = p;
@@ -566,6 +598,10 @@ export default function Race3D({ view, roomId, conn, inputLocked, onLeave, event
       // drive meshes
       const renderT = (clockOffset != null ? tNow + clockOffset : 0) - REMOTE_DELAY;
       for (const [id, rec] of meshes) {
+        if (rec.teamMarker) {
+          rec.teamMarker.rotation.y += 0.05;
+          rec.teamMarker.position.y = 3.0 + Math.sin(tNow * 2.4 + rec.teamMarker.rotation.y) * 0.12;
+        }
         let x, z, heading, speed, offTrack, steerFor;
         if (rec.isMe && me.seeded) {
           ({ x, z, heading, speed, offTrack } = me);

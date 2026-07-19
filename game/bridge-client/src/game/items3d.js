@@ -751,8 +751,8 @@ export class Effects3D {
             new THREE.ConeGeometry(0.20 - i * 0.025, 0.55 + i * 0.18, 7),
             plastic([0xfff7ea, 0xf7c04a, 0xff9a4d, 0xff5a3c, 0xe2574c][i], { transparent: true, opacity: 0.85 - i * 0.1 })
           );
-          flame.rotation.x = -Math.PI / 2;
-          flame.position.set((i % 2 ? 0.22 : -0.22), 0.55, -1.3 - i * 0.22);
+          flame.rotation.z = Math.PI / 2;   // tip along -X: the BACK of the kart
+          flame.position.set(-1.42 - i * 0.22, 0.55, (i % 2 ? 0.22 : -0.22));
           f.add(flame);
         }
         rec.mesh.add(f);
@@ -761,7 +761,7 @@ export class Effects3D {
       if (st.flames) {
         const t = performance.now() / 1000;
         st.flames.children.forEach((c, i) => {
-          c.scale.z = 0.8 + Math.sin(t * 22 + i * 1.3) * 0.35;
+          c.scale.y = 0.8 + Math.sin(t * 22 + i * 1.3) * 0.35;   // length axis is local Y after the Z-rotation
           c.material.opacity = (0.85 - i * 0.1) * (0.75 + Math.sin(t * 18 + i) * 0.25);
         });
       }

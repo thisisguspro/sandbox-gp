@@ -248,15 +248,26 @@ export class ModeWorld3D {
             plastic(f.team === 0 ? 0x2fe6c8 : 0xff5a3c, { side: THREE.DoubleSide })
           );
           cloth.position.set(1.1, 3.2, 0);
-          g.add(pole, cloth);
+          // THE CARRIER BEACON: whoever holds this flag stands under a tall
+          // pulsing column of the flag's own colour — visible across the whole
+          // arena, no squinting at a small banner on a moving kart.
+          const beam = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.55, 0.9, 11, 10, 1, true),
+            new THREE.MeshBasicMaterial({ color: f.team === 0 ? 0x2fe6c8 : 0xff5a3c, transparent: true, opacity: 0.0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false })
+          );
+          beam.position.y = 5.5;
+          g.add(pole, cloth, beam);
           this.scene.add(g);
-          rec = { grp: g, cloth };
+          rec = { grp: g, cloth, beam };
           this.flags.set(f.team, rec);
         }
         rec.grp.position.set(f.x, 0, f.z);
-        // a carried flag flies; a dropped one droops
-        rec.cloth.rotation.y = f.carrier ? Math.sin(performance.now() / 120) * 0.5 : 0;
-        rec.grp.rotation.y = f.carrier ? performance.now() / 400 : 0;
+        // a carried flag flies (bigger) under its beacon; parked = calm, no beam
+        const carried = !!f.carrier;
+        rec.cloth.rotation.y = carried ? Math.sin(performance.now() / 120) * 0.5 : 0;
+        rec.cloth.scale.setScalar(carried ? 1.55 : 1);
+        rec.grp.rotation.y = carried ? performance.now() / 400 : 0;
+        if (rec.beam) rec.beam.material.opacity = carried ? 0.22 + Math.sin(performance.now() / 180) * 0.08 : 0;
       }
     }
 

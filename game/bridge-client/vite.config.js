@@ -12,7 +12,7 @@ export default defineConfig({
   // just deployed or a cached copy of the last one. Now the version and the build
   // time are baked in, and shown in the corner of the menu.
   define: {
-    __APP_VERSION__: JSON.stringify("24.11.4"),
+    __APP_VERSION__: JSON.stringify("24.12.0"),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString().slice(0, 16).replace("T", " ")),
   },
   base: "./",

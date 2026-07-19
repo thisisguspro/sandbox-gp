@@ -1,6 +1,6 @@
 {
   "name": "bridge-backend",
-  "version": "24.11.4",
+  "version": "24.12.0",
   "description": "Project BRIDGE — application backend (accounts, store, inventory, codes, admin)",
   "type": "module",
   "main": "src/server.js",
