@@ -1,0 +1,6 @@
+node_modules/
+dist/
+dist-cg/
+*.zip
+.env
+*.log
